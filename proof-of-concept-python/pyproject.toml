@@ -1,0 +1,16 @@
+[project]
+name = "yesplan-poc"
+version = "0.1.0"
+description = "Proof of concept script for fetching data from YesPlan API"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["fetch_yesplan_data.py"]
+
