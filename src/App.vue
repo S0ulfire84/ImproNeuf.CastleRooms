@@ -121,11 +121,14 @@ const filtered_events = computed(() => {
   return filter_events_by_booker(events.value, selected_booker.value, event_contacts_map.value)
 })
 
+// Fetch all events once on mount - this is the ONLY place we fetch events
+// Calendar component filters these events client-side by month
+// This ensures we make minimal API calls (only pagination requests needed to get all events)
 const fetch_data = async () => {
   loading.value = true
   error.value = null
   try {
-    // Fetch events
+    // Fetch all events (handles pagination automatically)
     const fetched_events = await api_service.fetchEvents()
     events.value = fetched_events
 

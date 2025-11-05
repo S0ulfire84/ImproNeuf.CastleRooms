@@ -36,9 +36,11 @@ export interface YesPlanContact {
 }
 
 export interface PaginationInfo {
-  book: number
-  page: number
-  hasMore: boolean
+  book?: number
+  page?: number
+  hasMore?: boolean
+  next?: string
+  expires?: string
 }
 
 export interface YesPlanResponse<T> {
@@ -162,15 +164,63 @@ export class YesPlanApiService {
       all_events.push(...events)
 
       if (response.pagination) {
-        book = response.pagination.book
-        has_more = response.pagination.hasMore
-        page++
+        // Check if there's a next page using either 'next' URL or 'hasMore' flag
+        if (response.pagination.next) {
+          // Parse book and page from the next URL if available
+          try {
+            const next_url = new URL(response.pagination.next)
+            const next_book = next_url.searchParams.get('book')
+            const next_page = next_url.searchParams.get('page')
+            if (next_book) book = parseInt(next_book, 10)
+            if (next_page) page = parseInt(next_page, 10)
+          } catch {
+            // If URL parsing fails, try to increment page
+            page++
+          }
+          has_more = true
+        } else if (response.pagination.hasMore !== undefined) {
+          has_more = response.pagination.hasMore
+          if (response.pagination.book !== undefined) {
+            book = response.pagination.book
+          }
+          page++
+        } else {
+          // No pagination info means we're done
+          has_more = false
+        }
       } else {
         has_more = false
       }
     }
 
     return all_events
+  }
+
+  /**
+   * Filter events for a specific month (client-side filtering, no API call)
+   * 
+   * @param events - Array of events to filter
+   * @param date - A date within the target month
+   * @returns Events that overlap with the specified month
+   */
+  filterEventsForMonth(events: YesPlanEvent[], date: Date): YesPlanEvent[] {
+    const month_start = new Date(date.getFullYear(), date.getMonth(), 1)
+    const month_end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
+    
+    return events.filter((event) => {
+      const event_start = new Date(event.start)
+      const event_end = new Date(event.end)
+      
+      // Event overlaps with month if:
+      // - Event starts within the month, OR
+      // - Event ends within the month, OR
+      // - Event spans the entire month (starts before and ends after)
+      return (
+        (event_start >= month_start && event_start <= month_end) ||
+        (event_end >= month_start && event_end <= month_end) ||
+        (event_start <= month_start && event_end >= month_end)
+      )
+    })
   }
 
   /**
@@ -242,13 +292,27 @@ export class YesPlanApiService {
    * Normalize event data structure
    */
   normalizeEvent(raw_event: Record<string, unknown>): YesPlanEvent {
+    // Extract start and end times - API uses 'starttime' and 'endtime'
+    const start_time = raw_event.starttime || raw_event.start || raw_event.defaultschedulestart
+    const end_time = raw_event.endtime || raw_event.end || raw_event.defaultscheduleend
+    
+    // Extract status - API returns status as an object with 'name' property
+    let status_value = ''
+    if (raw_event.status) {
+      if (typeof raw_event.status === 'object' && raw_event.status !== null && 'name' in raw_event.status) {
+        status_value = String((raw_event.status as { name: string }).name)
+      } else {
+        status_value = String(raw_event.status)
+      }
+    }
+    
     const normalized: YesPlanEvent = {
       ...raw_event,
       id: String(raw_event.id || ''),
       name: String(raw_event.name || ''),
-      start: this.parseDate(String(raw_event.start || '')),
-      end: this.parseDate(String(raw_event.end || '')),
-      status: String(raw_event.status || ''),
+      start: start_time ? this.parseDate(String(start_time)) : new Date(),
+      end: end_time ? this.parseDate(String(end_time)) : new Date(),
+      status: status_value,
       description: raw_event.description ? String(raw_event.description) : undefined,
     }
     return normalized

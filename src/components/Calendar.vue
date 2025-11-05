@@ -27,9 +27,7 @@
       </button>
     </div>
 
-    <div v-if="loading" class="loading">Loading events...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else class="calendar-grid">
+    <div class="calendar-grid">
       <div class="calendar-weekdays">
         <div v-for="day in weekdays" :key="day" class="weekday">
           {{ day }}
@@ -58,20 +56,18 @@
           </div>
         </div>
       </div>
-      <div v-if="!displayed_events.length" class="empty-state">No events found</div>
+      <div v-if="!filtered_by_month.length" class="empty-state">No events found for this month</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameMonth, isToday, isSameDay, addMonths, subMonths } from 'date-fns'
-import { YesPlanApiService } from '../services/yesplan-api'
 import type { YesPlanEvent } from '../services/yesplan-api'
 
 const props = defineProps<{
   current_date?: Date
-  api_service?: YesPlanApiService
   filtered_events?: YesPlanEvent[]
 }>()
 
@@ -80,11 +76,8 @@ const emit = defineEmits<{
   'month-changed': [date: Date]
 }>()
 
-const api_service_instance = props.api_service || new YesPlanApiService()
 const current_date = ref(props.current_date || new Date())
-const events = ref<YesPlanEvent[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+// Note: Events come from props (filtered_events) - no internal fetching to avoid duplicate API calls
 
 // Watch for prop changes to sync internal state
 watch(
@@ -96,9 +89,36 @@ watch(
   }
 )
 
-// Use filtered_events prop if provided, otherwise use internal events
+// Use filtered_events prop - events are always provided from App.vue
+// This ensures we only make one API call to fetch all events
 const displayed_events = computed(() => {
-  return props.filtered_events !== undefined ? props.filtered_events : events.value
+  return props.filtered_events || []
+})
+
+// Filter displayed events by current month
+const filtered_by_month = computed(() => {
+  const events_to_filter = displayed_events.value
+  if (events_to_filter.length === 0) {
+    return []
+  }
+
+  const month_start = startOfMonth(current_date.value)
+  const month_end = endOfMonth(current_date.value)
+  
+  return events_to_filter.filter((event) => {
+    const event_start = new Date(event.start)
+    const event_end = new Date(event.end)
+    
+    // Event overlaps with month if:
+    // - Event starts within the month, OR
+    // - Event ends within the month, OR
+    // - Event spans the entire month
+    return (
+      (event_start >= month_start && event_start <= month_end) ||
+      (event_end >= month_start && event_end <= month_end) ||
+      (event_start <= month_start && event_end >= month_end)
+    )
+  })
 })
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -130,7 +150,7 @@ const calendar_days = computed((): CalendarDay[] => {
   })
 
   return days_in_range.map((date) => {
-    const day_events = displayed_events.value.filter((event) => {
+    const day_events = filtered_by_month.value.filter((event) => {
       const event_start = new Date(event.start)
       const event_end = new Date(event.end)
       return (
@@ -175,27 +195,8 @@ const select_event = (event_id: string) => {
   emit('event-selected', event_id)
 }
 
-const fetch_events = async () => {
-  // Only fetch if filtered_events prop is not provided
-  if (props.filtered_events !== undefined) {
-    return
-  }
-  
-  loading.value = true
-  error.value = null
-  try {
-    const fetched_events = await api_service_instance.fetchEvents()
-    events.value = fetched_events
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to fetch events'
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => {
-  fetch_events()
-})
+// Note: Calendar component does not fetch events - it receives them via props
+// This ensures we only make API calls once from App.vue
 </script>
 
 <style scoped>
