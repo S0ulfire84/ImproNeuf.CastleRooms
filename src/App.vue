@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import Calendar from './components/Calendar.vue'
 import RoomFilter from './components/RoomFilter.vue'
 import BookingDetailsModal from './components/BookingDetailsModal.vue'
@@ -13,14 +13,112 @@ const resources = ref<YesPlanResource[]>([])
 const selected_rooms = ref<string[]>([])
 const event_resource_map = ref<Record<string, string[]>>({})
 const selected_event_id = ref<string | null>(null)
+const calendar_date = ref<Date>(new Date())
 const loading = ref(false)
 const error = ref<string | null>(null)
+const loading_resources = ref(false)
+
+// Cache for event resources - tracks which events we've already fetched
+const event_resources_cache = ref<Record<string, string[]>>({})
+const fetching_event_ids = ref<Set<string>>(new Set())
 
 // Initialize selected_rooms with all rooms by default
 const initialize_selected_rooms = () => {
   if (resources.value.length > 0 && selected_rooms.value.length === 0) {
     selected_rooms.value = resources.value.map((resource) => resource.id)
   }
+}
+
+// Fetch event resources for specific events (with caching)
+const fetch_event_resources_batch = async (event_ids: string[]) => {
+  // Filter out events we've already fetched
+  const uncached_ids = event_ids.filter((id) => !(id in event_resources_cache.value) && !fetching_event_ids.value.has(id))
+  
+  if (uncached_ids.length === 0) {
+    return
+  }
+
+  // Mark as fetching
+  uncached_ids.forEach((id) => fetching_event_ids.value.add(id))
+
+  try {
+    // Fetch resources for events in batches to avoid rate limiting
+    // Process in smaller batches with delays between batches
+    const batch_size = 5
+    for (let i = 0; i < uncached_ids.length; i += batch_size) {
+      const batch = uncached_ids.slice(i, i + batch_size)
+      
+      await Promise.all(
+        batch.map(async (event_id) => {
+          try {
+            const event_resources = await api_service.fetchEventResources(event_id)
+            event_resources_cache.value[event_id] = event_resources.map((resource) => resource.id)
+          } catch (err) {
+            // If fetching fails, event has no resources
+            event_resources_cache.value[event_id] = []
+          } finally {
+            fetching_event_ids.value.delete(event_id)
+          }
+        })
+      )
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batch_size < uncached_ids.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+
+    // Update the event_resource_map with newly fetched data
+    event_resource_map.value = {
+      ...event_resource_map.value,
+      ...event_resources_cache.value,
+    }
+  } catch (err) {
+    // Clean up fetching flags on error
+    uncached_ids.forEach((id) => fetching_event_ids.value.delete(id))
+    throw err
+  }
+}
+
+// Fetch event resources for events visible in a specific month
+const fetch_resources_for_month = async (date: Date) => {
+  if (events.value.length === 0) {
+    return
+  }
+
+  loading_resources.value = true
+  
+  try {
+    // Calculate month boundaries
+    const month_start = new Date(date.getFullYear(), date.getMonth(), 1)
+    const month_end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59)
+
+    // Find events that are visible in this month
+    const visible_events = events.value.filter((event) => {
+      const event_start = new Date(event.start)
+      const event_end = new Date(event.end)
+      return (
+        (event_start >= month_start && event_start <= month_end) ||
+        (event_end >= month_start && event_end <= month_end) ||
+        (event_start <= month_start && event_end >= month_end)
+      )
+    })
+
+    const visible_event_ids = visible_events.map((event) => event.id)
+    await fetch_event_resources_batch(visible_event_ids)
+  } catch (err) {
+    console.error('Error fetching event resources:', err)
+  } finally {
+    loading_resources.value = false
+  }
+}
+
+// Fetch event resources for events visible in the current month
+const fetch_resources_for_visible_events = async () => {
+  if (selected_rooms.value.length === 0) {
+    return
+  }
+  await fetch_resources_for_month(new Date())
 }
 
 // Filtered events based on selected rooms
@@ -47,22 +145,11 @@ const fetch_data = async () => {
     // Initialize selected rooms with all rooms
     initialize_selected_rooms()
 
-    // Fetch event-resource relationships for all events
-    // Note: This is a simplified approach - in production you might want to
-    // fetch these on-demand or cache them
-    const resource_map: Record<string, string[]> = {}
-    await Promise.all(
-      fetched_events.map(async (event) => {
-        try {
-          const event_resources = await api_service.fetchEventResources(event.id)
-          resource_map[event.id] = event_resources.map((resource) => resource.id)
-        } catch (err) {
-          // If fetching fails, event has no resources
-          resource_map[event.id] = []
-        }
-      })
-    )
-    event_resource_map.value = resource_map
+    // Fetch event resources for visible events after rooms are initialized
+    // This will happen lazily when rooms are selected
+    if (selected_rooms.value.length > 0) {
+      await fetch_resources_for_visible_events()
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch data'
   } finally {
@@ -70,13 +157,39 @@ const fetch_data = async () => {
   }
 }
 
-const handle_event_selected = (event_id: string) => {
+const handle_event_selected = async (event_id: string) => {
   selected_event_id.value = event_id
+  
+  // Ensure event resources are fetched for the selected event
+  if (!(event_id in event_resources_cache.value)) {
+    await fetch_event_resources_batch([event_id])
+  }
 }
 
 const handle_modal_close = () => {
   selected_event_id.value = null
 }
+
+// Watch for room selection changes - fetch resources for visible events when rooms are selected
+watch(
+  [selected_rooms, () => events.value.length],
+  async () => {
+    if (selected_rooms.value.length > 0 && events.value.length > 0) {
+      await fetch_resources_for_visible_events()
+    }
+  },
+  { immediate: false }
+)
+
+// Watch for calendar month changes - fetch resources for events in the new month
+watch(
+  calendar_date,
+  async () => {
+    if (selected_rooms.value.length > 0 && events.value.length > 0) {
+      await fetch_resources_for_month(calendar_date.value)
+    }
+  }
+)
 
 onMounted(() => {
   fetch_data()
@@ -124,7 +237,9 @@ onMounted(() => {
       <main class="main-content">
         <Calendar
           :filtered_events="filtered_events"
+          :current_date="calendar_date"
           @event-selected="handle_event_selected"
+          @month-changed="calendar_date = $event"
         />
       </main>
     </div>

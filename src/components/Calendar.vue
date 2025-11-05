@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameMonth, isToday, isSameDay, addMonths, subMonths } from 'date-fns'
 import { YesPlanApiService } from '../services/yesplan-api'
 import type { YesPlanEvent } from '../services/yesplan-api'
@@ -77,6 +77,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'event-selected': [event_id: string]
+  'month-changed': [date: Date]
 }>()
 
 const api_service_instance = props.api_service || new YesPlanApiService()
@@ -84,6 +85,16 @@ const current_date = ref(props.current_date || new Date())
 const events = ref<YesPlanEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+// Watch for prop changes to sync internal state
+watch(
+  () => props.current_date,
+  (new_date) => {
+    if (new_date) {
+      current_date.value = new_date
+    }
+  }
+)
 
 // Use filtered_events prop if provided, otherwise use internal events
 const displayed_events = computed(() => {
@@ -147,14 +158,17 @@ const format_event_time = (event: YesPlanEvent): string => {
 
 const go_to_previous_month = () => {
   current_date.value = subMonths(current_date.value, 1)
+  emit('month-changed', current_date.value)
 }
 
 const go_to_next_month = () => {
   current_date.value = addMonths(current_date.value, 1)
+  emit('month-changed', current_date.value)
 }
 
 const go_to_today = () => {
   current_date.value = new Date()
+  emit('month-changed', current_date.value)
 }
 
 const select_event = (event_id: string) => {
