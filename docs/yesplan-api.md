@@ -38,41 +38,49 @@ Most endpoints return responses in the following format:
 Events represent bookings/appointments in YesPlan. These contain information about what is booked, when, and which resources (rooms) are involved.
 
 #### List All Events
+
 ```
 GET /api/events
 GET /api/events?book={book_id}&page={page}
 ```
 
 **Query Parameters:**
+
 - `book` (optional, integer): The book identifier for pagination
 - `page` (optional, integer): The page identifier for pagination
 
 **Response:** Returns a list of all events/bookings.
 
 #### Search Events
+
 ```
 GET /api/events/{query}
 GET /api/events/{query}?book={book_id}&page={page}
 ```
 
 **Path Parameters:**
+
 - `query` (required, string): Search query string
 
 **Query Parameters:**
+
 - `book` (optional, integer): The book identifier for pagination
 - `page` (optional, integer): The page identifier for pagination
 
 **Use Case:** Search for events matching specific criteria (e.g., dates, contact names).
 
 #### Get Specific Event Details
+
 ```
 GET /api/event/{id}
 ```
 
 **Path Parameters:**
+
 - `id` (required, string): The event identifier
 
 **Response:** Returns detailed information about a specific event/booking, including:
+
 - Event name and description
 - Start and end dates/times
 - Associated resources (rooms)
@@ -81,6 +89,7 @@ GET /api/event/{id}
 - And more...
 
 **Related Endpoints:**
+
 - `GET /api/event/{id}/attachments` - Get attachments for an event
 - `GET /api/event/{id}/customdata` - Get custom data for an event
 - `GET /api/event/{id}/customdata?keywords={keywords}&valuesonly` - Get filtered custom data
@@ -90,37 +99,44 @@ GET /api/event/{id}
 Resources represent physical spaces like rooms, equipment, or other bookable items.
 
 #### List All Resources
+
 ```
 GET /api/resources
 GET /api/resources?book={book_id}&page={page}
 ```
 
 **Query Parameters:**
+
 - `book` (optional, integer): The book identifier for pagination
 - `page` (optional, integer): The page identifier for pagination
 
 **Response:** Returns a list of all resources (rooms) available in the system.
 
 #### Search Resources
+
 ```
 GET /api/resources/{query}
 GET /api/resources/{query}?book={book_id}&page={page}
 ```
 
 **Path Parameters:**
+
 - `query` (required, string): Search query string
 
 **Use Case:** Search for specific rooms by name or other criteria.
 
 #### Get Specific Resource Details
+
 ```
 GET /api/resource/{id}
 ```
 
 **Path Parameters:**
+
 - `id` (required, string): The resource identifier
 
 **Response:** Returns detailed information about a specific resource (room), including:
+
 - Resource name and description
 - Location information
 - Capacity and specifications
@@ -128,6 +144,7 @@ GET /api/resource/{id}
 - And more...
 
 **Related Endpoints:**
+
 - `GET /api/resource/{id}/attachments` - Get attachments for a resource
 - `GET /api/resource/{id}/customdata` - Get custom data for a resource
 - `GET /api/resource/{id}/customdata?keywords={keywords}&valuesonly` - Get filtered custom data
@@ -137,17 +154,20 @@ GET /api/resource/{id}
 Locations represent physical places where resources (rooms) are located.
 
 #### List All Locations
+
 ```
 GET /api/locations
 GET /api/locations?book={book_id}&page={page}
 ```
 
 #### Search Locations
+
 ```
 GET /api/locations/{query}
 ```
 
 #### Get Specific Location Details
+
 ```
 GET /api/location/{id}
 ```
@@ -159,17 +179,20 @@ GET /api/location/{id}
 Contacts represent people or organizations that make bookings.
 
 #### List All Contacts
+
 ```
 GET /api/contacts
 GET /api/contacts?book={book_id}&page={page}
 ```
 
 #### Search Contacts
+
 ```
 GET /api/contacts/{query}
 ```
 
 #### Get Specific Contact Details
+
 ```
 GET /api/contact/{id}
 ```
@@ -177,6 +200,7 @@ GET /api/contact/{id}
 **Use Case:** Get information about who made a booking (Impro Neuf or other contacts).
 
 **Related Endpoints:**
+
 - `GET /api/contact/{id}/attachments` - Get attachments for a contact
 - `GET /api/contact/{id}/customdata` - Get custom data for a contact
 
@@ -185,21 +209,25 @@ GET /api/contact/{id}
 To understand which rooms are booked for specific events:
 
 #### Get Resources for an Event
+
 ```
 GET /api/event/{id}/resources
 ```
 
 **Path Parameters:**
+
 - `id` (required, string): The event identifier
 
 **Response:** Returns the resources (rooms) associated with a specific event/booking.
 
 #### Get Events for a Resource
+
 ```
 GET /api/resource/{id}/events
 ```
 
 **Path Parameters:**
+
 - `id` (required, string): The resource identifier
 
 **Response:** Returns all events/bookings associated with a specific resource (room).
@@ -211,6 +239,7 @@ GET /api/resource/{id}/events
 To understand which contacts are associated with bookings:
 
 #### Get Contacts for an Event
+
 ```
 GET /api/event/{id}/contacts
 ```
@@ -218,6 +247,7 @@ GET /api/event/{id}/contacts
 **Response:** Returns the contacts associated with a specific event/booking.
 
 #### Get Events for a Contact
+
 ```
 GET /api/contact/{id}/events
 ```
@@ -233,9 +263,11 @@ To find which rooms are booked to Impro Neuf, on which dates, and all booking de
 ### Step 1: Find Impro Neuf Contact
 
 1. Search for the Impro Neuf contact:
+
    ```
    GET /api/contacts/{query}
    ```
+
    Where `{query}` is a search term like "Impro Neuf" or "Neuf"
 
 2. Get the contact ID from the response
@@ -258,9 +290,11 @@ To find which rooms are booked to Impro Neuf, on which dates, and all booking de
 For each event/booking returned:
 
 1. Get full event details:
+
    ```
    GET /api/event/{id}
    ```
+
    This provides:
    - Event name and description
    - Start date/time
@@ -269,9 +303,11 @@ For each event/booking returned:
    - Other event properties
 
 2. Get rooms booked for this event:
+
    ```
    GET /api/event/{id}/resources
    ```
+
    This returns all rooms/resources booked for this specific event.
 
 3. (Optional) Get custom data for additional details:
@@ -284,9 +320,11 @@ For each event/booking returned:
 For each room/resource found:
 
 1. Get detailed room information:
+
    ```
    GET /api/resource/{id}
    ```
+
    This provides:
    - Room name
    - Location
@@ -303,9 +341,11 @@ For each room/resource found:
 If you want to find bookings within a specific date range:
 
 1. Search events using the events endpoint with query parameters:
+
    ```
    GET /api/events/{query}
    ```
+
    Note: The exact query syntax may depend on YesPlan's search implementation.
 
 2. Filter events by date in your application code (check the `start` and `end` fields in event objects).
@@ -357,7 +397,7 @@ curl "https://neuf.yesplan.be/api/events?api_key=YOUR_API_KEY"
       "name": "Event Name",
       "start": "2024-01-15T10:00:00Z",
       "end": "2024-01-15T12:00:00Z",
-      "status": "confirmed",
+      "status": "confirmed"
       // ... other event fields
     }
   ],
@@ -398,4 +438,3 @@ curl "https://neuf.yesplan.be/api/events?api_key=YOUR_API_KEY"
 5. **Filter by date**: Once you have events, filter them by date range in your application code.
 
 6. **Get full details**: Use the specific ID endpoints (`/api/event/{id}`) to get complete information about each booking.
-

@@ -1,38 +1,30 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import Calendar from './components/Calendar.vue'
-import RoomFilter from './components/RoomFilter.vue'
+import BookerFilter from './components/BookerFilter.vue'
 import BookingDetailsModal from './components/BookingDetailsModal.vue'
 import { YesPlanApiService } from './services/yesplan-api'
-import type { YesPlanEvent, YesPlanResource } from './services/yesplan-api'
-import { filter_events_by_rooms } from './utils/filterUtils'
+import type { YesPlanEvent, YesPlanContact } from './services/yesplan-api'
+import { filter_events_by_booker } from './utils/filterUtils'
 
 const api_service = new YesPlanApiService()
 const events = ref<YesPlanEvent[]>([])
-const resources = ref<YesPlanResource[]>([])
-const selected_rooms = ref<string[]>([])
-const event_resource_map = ref<Record<string, string[]>>({})
+const selected_booker = ref<string>('Impro Neuf') // Default to 'Impro Neuf'
+const event_contacts_map = ref<Record<string, YesPlanContact[]>>({})
 const selected_event_id = ref<string | null>(null)
 const calendar_date = ref<Date>(new Date())
 const loading = ref(false)
 const error = ref<string | null>(null)
-const loading_resources = ref(false)
+const loading_contacts = ref(false)
 
-// Cache for event resources - tracks which events we've already fetched
-const event_resources_cache = ref<Record<string, string[]>>({})
+// Cache for event contacts - tracks which events we've already fetched
+const event_contacts_cache = ref<Record<string, YesPlanContact[]>>({})
 const fetching_event_ids = ref<Set<string>>(new Set())
 
-// Initialize selected_rooms with all rooms by default
-const initialize_selected_rooms = () => {
-  if (resources.value.length > 0 && selected_rooms.value.length === 0) {
-    selected_rooms.value = resources.value.map((resource) => resource.id)
-  }
-}
-
-// Fetch event resources for specific events (with caching)
-const fetch_event_resources_batch = async (event_ids: string[]) => {
+// Fetch event contacts for specific events (with caching)
+const fetch_event_contacts_batch = async (event_ids: string[]) => {
   // Filter out events we've already fetched
-  const uncached_ids = event_ids.filter((id) => !(id in event_resources_cache.value) && !fetching_event_ids.value.has(id))
+  const uncached_ids = event_ids.filter((id) => !(id in event_contacts_cache.value) && !fetching_event_ids.value.has(id))
   
   if (uncached_ids.length === 0) {
     return
@@ -42,7 +34,7 @@ const fetch_event_resources_batch = async (event_ids: string[]) => {
   uncached_ids.forEach((id) => fetching_event_ids.value.add(id))
 
   try {
-    // Fetch resources for events in batches to avoid rate limiting
+    // Fetch contacts for events in batches to avoid rate limiting
     // Process in smaller batches with delays between batches
     const batch_size = 5
     for (let i = 0; i < uncached_ids.length; i += batch_size) {
@@ -51,11 +43,11 @@ const fetch_event_resources_batch = async (event_ids: string[]) => {
       await Promise.all(
         batch.map(async (event_id) => {
           try {
-            const event_resources = await api_service.fetchEventResources(event_id)
-            event_resources_cache.value[event_id] = event_resources.map((resource) => resource.id)
+            const event_contacts = await api_service.fetchEventContacts(event_id)
+            event_contacts_cache.value[event_id] = event_contacts
           } catch (err) {
-            // If fetching fails, event has no resources
-            event_resources_cache.value[event_id] = []
+            // If fetching fails, event has no contacts
+            event_contacts_cache.value[event_id] = []
           } finally {
             fetching_event_ids.value.delete(event_id)
           }
@@ -68,10 +60,10 @@ const fetch_event_resources_batch = async (event_ids: string[]) => {
       }
     }
 
-    // Update the event_resource_map with newly fetched data
-    event_resource_map.value = {
-      ...event_resource_map.value,
-      ...event_resources_cache.value,
+    // Update the event_contacts_map with newly fetched data
+    event_contacts_map.value = {
+      ...event_contacts_map.value,
+      ...event_contacts_cache.value,
     }
   } catch (err) {
     // Clean up fetching flags on error
@@ -80,13 +72,13 @@ const fetch_event_resources_batch = async (event_ids: string[]) => {
   }
 }
 
-// Fetch event resources for events visible in a specific month
-const fetch_resources_for_month = async (date: Date) => {
+// Fetch event contacts for events visible in a specific month
+const fetch_contacts_for_month = async (date: Date) => {
   if (events.value.length === 0) {
     return
   }
 
-  loading_resources.value = true
+  loading_contacts.value = true
   
   try {
     // Calculate month boundaries
@@ -105,50 +97,42 @@ const fetch_resources_for_month = async (date: Date) => {
     })
 
     const visible_event_ids = visible_events.map((event) => event.id)
-    await fetch_event_resources_batch(visible_event_ids)
+    await fetch_event_contacts_batch(visible_event_ids)
   } catch (err) {
-    console.error('Error fetching event resources:', err)
+    console.error('Error fetching event contacts:', err)
   } finally {
-    loading_resources.value = false
+    loading_contacts.value = false
   }
 }
 
-// Fetch event resources for events visible in the current month
-const fetch_resources_for_visible_events = async () => {
-  if (selected_rooms.value.length === 0) {
+// Fetch event contacts for events visible in the current month
+const fetch_contacts_for_visible_events = async () => {
+  if (!selected_booker.value) {
     return
   }
-  await fetch_resources_for_month(new Date())
+  await fetch_contacts_for_month(calendar_date.value)
 }
 
-// Filtered events based on selected rooms
+// Filtered events based on selected booker
 const filtered_events = computed(() => {
-  if (selected_rooms.value.length === 0) {
+  if (!selected_booker.value) {
     return []
   }
-  return filter_events_by_rooms(events.value, selected_rooms.value, event_resource_map.value)
+  return filter_events_by_booker(events.value, selected_booker.value, event_contacts_map.value)
 })
 
 const fetch_data = async () => {
   loading.value = true
   error.value = null
   try {
-    // Fetch events and resources in parallel
-    const [fetched_events, fetched_resources] = await Promise.all([
-      api_service.fetchEvents(),
-      api_service.fetchResources(),
-    ])
-
+    // Fetch events
+    const fetched_events = await api_service.fetchEvents()
     events.value = fetched_events
-    resources.value = fetched_resources
 
-    // Initialize selected rooms with all rooms
-    initialize_selected_rooms()
-
-    // Fetch event resources for visible events after rooms are initialized
-    // This will happen lazily when rooms are selected
-    if (selected_rooms.value.length > 0) {
-      await fetch_resources_for_visible_events()
+    // Fetch event contacts for visible events after events are loaded
+    // This will happen lazily when booker is selected
+    if (selected_booker.value) {
+      await fetch_contacts_for_visible_events()
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch data'
@@ -160,9 +144,9 @@ const fetch_data = async () => {
 const handle_event_selected = async (event_id: string) => {
   selected_event_id.value = event_id
   
-  // Ensure event resources are fetched for the selected event
-  if (!(event_id in event_resources_cache.value)) {
-    await fetch_event_resources_batch([event_id])
+  // Ensure event contacts are fetched for the selected event
+  if (!(event_id in event_contacts_cache.value)) {
+    await fetch_event_contacts_batch([event_id])
   }
 }
 
@@ -170,23 +154,23 @@ const handle_modal_close = () => {
   selected_event_id.value = null
 }
 
-// Watch for room selection changes - fetch resources for visible events when rooms are selected
+// Watch for booker selection changes - fetch contacts for visible events when booker is selected
 watch(
-  [selected_rooms, () => events.value.length],
+  [selected_booker, () => events.value.length],
   async () => {
-    if (selected_rooms.value.length > 0 && events.value.length > 0) {
-      await fetch_resources_for_visible_events()
+    if (selected_booker.value && events.value.length > 0) {
+      await fetch_contacts_for_visible_events()
     }
   },
   { immediate: false }
 )
 
-// Watch for calendar month changes - fetch resources for events in the new month
+// Watch for calendar month changes - fetch contacts for events in the new month
 watch(
   calendar_date,
   async () => {
-    if (selected_rooms.value.length > 0 && events.value.length > 0) {
-      await fetch_resources_for_month(calendar_date.value)
+    if (selected_booker.value && events.value.length > 0) {
+      await fetch_contacts_for_month(calendar_date.value)
     }
   }
 )
@@ -218,19 +202,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else-if="resources.length === 0" class="empty-container">
-      <div class="empty-state-card">
-        <h2>No Rooms Available</h2>
-        <p>Unable to load room information. Please check your connection and try again.</p>
-      </div>
-    </div>
-
     <div v-else class="app-content">
       <aside class="sidebar">
-        <RoomFilter
-          :resources="resources"
-          :selected_rooms="selected_rooms"
-          @update:selected_rooms="selected_rooms = $event"
+        <BookerFilter
+          :selected_booker="selected_booker"
+          @update:selected_booker="selected_booker = $event"
         />
       </aside>
 
