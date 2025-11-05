@@ -63,7 +63,22 @@ export class YesPlanApiService {
    * Build URL with API key query parameter
    */
   private build_url(endpoint: string, params?: Record<string, string | number>): string {
-    const url = new URL(`${this.base_url}${endpoint}`)
+    // Handle relative URLs (for proxy) vs absolute URLs
+    let url: URL
+    if (this.base_url.startsWith('/')) {
+      // Relative URL - use window.location.origin as base or fallback to full URL
+      // In test environment, we'll use the full URL
+      if (typeof window !== 'undefined' && window.location) {
+        url = new URL(`${this.base_url}${endpoint}`, window.location.origin)
+      } else {
+        // Fallback for test environments or when window is not available
+        url = new URL(`${this.base_url}${endpoint}`, 'http://localhost:5174')
+      }
+    } else {
+      // Absolute URL
+      url = new URL(`${this.base_url}${endpoint}`)
+    }
+    
     url.searchParams.set('api_key', this.api_key)
 
     if (params) {
