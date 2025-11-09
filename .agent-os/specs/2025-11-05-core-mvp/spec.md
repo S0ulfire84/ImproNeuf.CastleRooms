@@ -56,4 +56,3 @@ When a user clicks on a booking event displayed on the calendar, a modal dialog 
 1. **Functional Calendar View** - Users can view bookings from YesPlan API displayed on a monthly calendar grid, with events positioned correctly based on their dates
 2. **Room Filtering** - Users can toggle room visibility using filter controls, and the calendar updates to show only selected rooms' bookings
 3. **Booking Details Access** - Users can click on any booking event to open a modal showing complete booking information including event name, time, duration, room(s), and contact information
-

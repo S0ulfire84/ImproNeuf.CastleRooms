@@ -152,6 +152,22 @@ describe('BookingDetailsModal Component', () => {
       expect(mock_api_service.fetchEventContacts).toHaveBeenCalledWith('event-123')
     })
 
+    it('should fetch all data in parallel when modal opens (lazy loading)', async () => {
+      const wrapper = create_wrapper({ event_id: 'event-123' })
+      await wrapper.vm.$nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      // Verify all three API calls were made
+      expect(mock_api_service.fetchEventDetails).toHaveBeenCalledWith('event-123')
+      expect(mock_api_service.fetchEventResources).toHaveBeenCalledWith('event-123')
+      expect(mock_api_service.fetchEventContacts).toHaveBeenCalledWith('event-123')
+      
+      // Verify all calls were made (lazy loading - only when modal opens)
+      expect(mock_api_service.fetchEventDetails).toHaveBeenCalledTimes(1)
+      expect(mock_api_service.fetchEventResources).toHaveBeenCalledTimes(1)
+      expect(mock_api_service.fetchEventContacts).toHaveBeenCalledTimes(1)
+    })
+
     it('should show loading state while fetching', async () => {
       mock_api_service.fetchEventDetails.mockImplementation(() => new Promise(() => {})) // Never resolves
 

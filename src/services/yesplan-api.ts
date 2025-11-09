@@ -51,6 +51,7 @@ export interface YesPlanResponse<T> {
 export class YesPlanApiService {
   private api_key: string
   private base_url: string
+  private contact_cache: Map<string, string> = new Map()
 
   constructor() {
     const api_key = import.meta.env.VITE_YESPLAN_API_KEY
@@ -144,15 +145,20 @@ export class YesPlanApiService {
   }
 
   /**
-   * Fetch all events with pagination support
+   * Fetch events with pagination support, optionally limited to a date range
+   * 
+   * @param start_date - Optional start date to limit fetching (only fetch events after this date)
+   * @param end_date - Optional end date to limit fetching (only fetch events before this date)
+   * @param max_pages - Maximum number of pages to fetch (default: 10 to avoid rate limiting)
    */
-  async fetchEvents(): Promise<YesPlanEvent[]> {
+  async fetchEvents(start_date?: Date, end_date?: Date, max_pages: number = 10): Promise<YesPlanEvent[]> {
     const all_events: YesPlanEvent[] = []
     let book: number | undefined = undefined
     let page = 1
     let has_more = true
+    let pages_fetched = 0
 
-    while (has_more) {
+    while (has_more && pages_fetched < max_pages) {
       const params: Record<string, string | number> = {}
       if (book !== undefined) {
         params.book = book
@@ -161,7 +167,40 @@ export class YesPlanApiService {
 
       const response = await this.request<YesPlanResponse<unknown>>('/events', params)
       const events = (response.data || []).map((event: unknown) => this.normalizeEvent(event as Record<string, unknown>))
-      all_events.push(...events)
+      
+      // Filter events by date range if provided
+      let filtered_events = events
+      if (start_date || end_date) {
+        filtered_events = events.filter((event) => {
+          const event_start = new Date(event.start)
+          const event_end = new Date(event.end)
+          
+          if (start_date && event_end < start_date) {
+            return false // Event ends before start_date
+          }
+          if (end_date && event_start > end_date) {
+            return false // Event starts after end_date
+          }
+          return true
+        })
+      }
+      
+      all_events.push(...filtered_events)
+      pages_fetched++
+
+      // If we have a date range and all events in this page are outside the range, we can stop
+      if (start_date && end_date && filtered_events.length === 0 && events.length > 0) {
+        // Check if all events are before start_date (we've gone too far back)
+        const all_before = events.every((event) => {
+          const event_end = new Date(event.end)
+          return event_end < start_date
+        })
+        if (all_before) {
+          // All events are before our range, stop fetching
+          has_more = false
+          break
+        }
+      }
 
       if (response.pagination) {
         // Check if there's a next page using either 'next' URL or 'hasMore' flag
@@ -191,6 +230,10 @@ export class YesPlanApiService {
       } else {
         has_more = false
       }
+    }
+
+    if (import.meta.env.DEV) {
+      console.log(`[YesPlanApiService] Fetched ${all_events.length} events from ${pages_fetched} pages${start_date || end_date ? ` (date range: ${start_date?.toISOString().split('T')[0]} to ${end_date?.toISOString().split('T')[0]})` : ''}`)
     }
 
     return all_events
@@ -262,6 +305,20 @@ export class YesPlanApiService {
    */
   async fetchEventDetails(event_id: string): Promise<YesPlanEvent> {
     const response = await this.request<Record<string, unknown>>(`/event/${event_id}`)
+    
+    // TEMPORARY: Log response structure for analysis (Task 2.1)
+    if (import.meta.env.DEV) {
+      console.log('[API Analysis] /api/event/{id} response structure:', {
+        event_id,
+        has_contacts: 'contacts' in response || 'contact_ids' in response,
+        has_resources: 'resources' in response || 'resource_ids' in response,
+        contact_keys: Object.keys(response).filter(key => key.toLowerCase().includes('contact')),
+        resource_keys: Object.keys(response).filter(key => key.toLowerCase().includes('resource')),
+        full_response_keys: Object.keys(response),
+        sample_response: JSON.stringify(response, null, 2).substring(0, 1000), // First 1000 chars
+      })
+    }
+    
     return this.normalizeEvent(response)
   }
 
@@ -279,6 +336,168 @@ export class YesPlanApiService {
   async fetchEventContacts(event_id: string): Promise<YesPlanContact[]> {
     const response = await this.request<YesPlanResponse<unknown>>(`/event/${event_id}/contacts`)
     return (response.data || []).map((contact: unknown) => this.normalizeContact(contact as Record<string, unknown>))
+  }
+
+  /**
+   * Fetch all events for a specific contact
+   * 
+   * Note: The YesPlan API doesn't support /api/contact/{id}/events endpoint.
+   * This method returns all events - filtering by contact should be done client-side
+   * using the contact information fetched lazily when needed.
+   * 
+   * @param contact_id - Contact identifier (currently unused due to API limitation)
+   * @returns Array of all events (filtering by contact should be done client-side)
+   */
+  async fetchEventsForContact(contact_id: string): Promise<YesPlanEvent[]> {
+    // The YesPlan API doesn't support /api/contact/{id}/events endpoint
+    // Fallback: Fetch all events - filtering by contact will be done client-side
+    // when contacts are fetched lazily for events
+    
+    if (import.meta.env.DEV) {
+      console.warn(`[YesPlanApiService] /api/contact/{id}/events not supported. Fetching all events - filtering will be done client-side.`)
+    }
+    
+    // Fetch all events (same as fetchEvents())
+    return await this.fetchEvents()
+  }
+  
+  /**
+   * DEPRECATED: Original implementation that tried to use /api/contact/{id}/events
+   * This endpoint doesn't exist in the YesPlan API
+   */
+  async _fetchEventsForContact_original(contact_id: string): Promise<YesPlanEvent[]> {
+    const all_events: YesPlanEvent[] = []
+    let book: number | undefined = undefined
+    let page = 1
+    let has_more = true
+
+    while (has_more) {
+      const params: Record<string, string | number> = {}
+      if (book !== undefined) {
+        params.book = book
+        params.page = page
+      }
+
+      const response = await this.request<YesPlanResponse<unknown>>(`/contact/${contact_id}/events`, params)
+      
+      // TEMPORARY: Log response structure for analysis (Task 2.2)
+      if (import.meta.env.DEV && page === 1) {
+        const first_event = response.data?.[0] as Record<string, unknown> | undefined
+        console.log('[API Analysis] /api/contact/{id}/events response structure:', {
+          contact_id,
+          total_events: response.data?.length || 0,
+          has_pagination: !!response.pagination,
+          first_event_keys: first_event ? Object.keys(first_event) : [],
+          first_event_has_contacts: first_event ? ('contacts' in first_event || 'contact_ids' in first_event) : false,
+          first_event_has_resources: first_event ? ('resources' in first_event || 'resource_ids' in first_event) : false,
+          contact_keys: first_event ? Object.keys(first_event).filter(key => key.toLowerCase().includes('contact')) : [],
+          resource_keys: first_event ? Object.keys(first_event).filter(key => key.toLowerCase().includes('resource')) : [],
+          sample_event: first_event ? JSON.stringify(first_event, null, 2).substring(0, 1000) : null,
+        })
+      }
+      
+      const events = (response.data || []).map((event: unknown) => this.normalizeEvent(event as Record<string, unknown>))
+      all_events.push(...events)
+
+      if (response.pagination) {
+        // Check if there's a next page using either 'next' URL or 'hasMore' flag
+        if (response.pagination.next) {
+          // Parse book and page from the next URL if available
+          try {
+            const next_url = new URL(response.pagination.next)
+            const next_book = next_url.searchParams.get('book')
+            const next_page = next_url.searchParams.get('page')
+            if (next_book) book = parseInt(next_book, 10)
+            if (next_page) page = parseInt(next_page, 10)
+          } catch {
+            // If URL parsing fails, try to increment page
+            page++
+          }
+          has_more = true
+        } else if (response.pagination.hasMore !== undefined) {
+          has_more = response.pagination.hasMore
+          if (response.pagination.book !== undefined) {
+            book = response.pagination.book
+          }
+          page++
+        } else {
+          // No pagination info means we're done
+          has_more = false
+        }
+      } else {
+        has_more = false
+      }
+    }
+
+    return all_events
+  }
+
+  /**
+   * Find contact ID by name with caching
+   * 
+   * @param name - Contact name to search for (e.g., "Impro Neuf")
+   * @returns Contact ID if found, null otherwise
+   */
+  async findContactByName(name: string): Promise<string | null> {
+    // Check cache first
+    if (this.contact_cache.has(name)) {
+      const cached_id = this.contact_cache.get(name) || null
+      if (import.meta.env.DEV) {
+        console.log(`[YesPlanApiService] Using cached contact ID for "${name}": ${cached_id}`)
+      }
+      return cached_id
+    }
+
+    try {
+      // Search contacts
+      const search_url = `/contacts/${encodeURIComponent(name)}`
+      if (import.meta.env.DEV) {
+        console.log(`[YesPlanApiService] Searching for contact: "${name}" at ${search_url}`)
+      }
+      
+      const response = await this.request<YesPlanResponse<unknown>>(search_url)
+      const contacts = response.data || []
+
+      if (import.meta.env.DEV) {
+        console.log(`[YesPlanApiService] Found ${contacts.length} contacts matching "${name}"`)
+        if (contacts.length > 0) {
+          console.log(`[YesPlanApiService] Contact names found:`, contacts.map((c: unknown) => (c as Record<string, unknown>).name))
+        }
+      }
+
+      // Find exact match
+      const contact = contacts.find((c: unknown) => {
+        const contact_obj = c as Record<string, unknown>
+        return contact_obj.name === name
+      })
+
+      if (contact) {
+        const contact_id = String((contact as Record<string, unknown>).id || '')
+        this.contact_cache.set(name, contact_id)
+        if (import.meta.env.DEV) {
+          console.log(`[YesPlanApiService] Found exact match for "${name}": ${contact_id}`)
+        }
+        return contact_id
+      }
+
+      if (import.meta.env.DEV) {
+        console.warn(`[YesPlanApiService] No exact match found for "${name}" in ${contacts.length} results`)
+      }
+      return null
+    } catch (error) {
+      // Handle 404 Not Found gracefully
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        if (import.meta.env.DEV) {
+          console.warn(`[YesPlanApiService] Contact search returned 404 for "${name}"`)
+        }
+        return null
+      }
+      // Re-throw other errors
+      if (import.meta.env.DEV) {
+        console.error(`[YesPlanApiService] Error searching for contact "${name}":`, error)
+      }
+      throw error
+    }
   }
 
   /**

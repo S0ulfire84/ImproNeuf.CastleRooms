@@ -286,6 +286,269 @@ describe('YesPlanApiService', () => {
     })
   })
 
+  describe('findContactByName', () => {
+    it('should find contact by name successfully', async () => {
+      const contact_name = 'Impro Neuf'
+      const mock_contacts = [
+        { id: 'contact-123', name: 'Impro Neuf', email: 'contact@improneuf.be' },
+        { id: 'contact-456', name: 'Other Contact', email: 'other@example.com' },
+      ]
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: mock_contacts }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.findContactByName(contact_name)
+
+      expect(result).toBe('contact-123')
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/contacts/Impro%20Neuf'),
+        expect.any(Object)
+      )
+    })
+
+    it('should return null when contact is not found', async () => {
+      const contact_name = 'Nonexistent Contact'
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: [] }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.findContactByName(contact_name)
+
+      expect(result).toBeNull()
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/contacts/Nonexistent%20Contact'),
+        expect.any(Object)
+      )
+    })
+
+    it('should return null when no exact name match is found', async () => {
+      const contact_name = 'Impro Neuf'
+      const mock_contacts = [
+        { id: 'contact-456', name: 'Impro Neuf Festival', email: 'festival@example.com' },
+        { id: 'contact-789', name: 'Neuf Impro', email: 'neuf@example.com' },
+      ]
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: mock_contacts }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.findContactByName(contact_name)
+
+      expect(result).toBeNull()
+    })
+
+    it('should cache contact ID after first lookup', async () => {
+      const contact_name = 'Impro Neuf'
+      const mock_contacts = [
+        { id: 'contact-123', name: 'Impro Neuf', email: 'contact@improneuf.be' },
+      ]
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: mock_contacts }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      // First call
+      const result1 = await api_service.findContactByName(contact_name)
+      expect(result1).toBe('contact-123')
+      expect(fetch).toHaveBeenCalledTimes(1)
+
+      // Second call should use cache
+      const result2 = await api_service.findContactByName(contact_name)
+      expect(result2).toBe('contact-123')
+      expect(fetch).toHaveBeenCalledTimes(1) // No additional API call
+    })
+
+    it('should handle 404 Not Found error gracefully', async () => {
+      const contact_name = 'Nonexistent Contact'
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      } as Response)
+
+      const result = await api_service.findContactByName(contact_name)
+
+      expect(result).toBeNull()
+    })
+
+    it('should handle network errors', async () => {
+      const contact_name = 'Impro Neuf'
+      vi.mocked(fetch).mockRejectedValueOnce(new Error('Network error'))
+
+      await expect(api_service.findContactByName(contact_name)).rejects.toThrow('Network error')
+    })
+
+    it('should handle empty response data', async () => {
+      const contact_name = 'Impro Neuf'
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: null }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.findContactByName(contact_name)
+
+      expect(result).toBeNull()
+    })
+
+    it('should URL encode contact name properly', async () => {
+      const contact_name = 'Oslo Impro Festival'
+      const mock_contacts = [
+        { id: 'contact-789', name: 'Oslo Impro Festival', email: 'oslo@example.com' },
+      ]
+      const mock_response = {
+        ok: true,
+        json: async () => ({ data: mock_contacts }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      await api_service.findContactByName(contact_name)
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/contacts/Oslo%20Impro%20Festival'),
+        expect.any(Object)
+      )
+    })
+  })
+
+  describe('fetchEventsForContact', () => {
+    it('should fetch events for contact successfully', async () => {
+      const contact_id = 'contact-123'
+      const mock_events = [
+        {
+          id: 'event-1',
+          name: 'Test Event 1',
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T12:00:00Z',
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Test Event 2',
+          start: '2024-01-16T10:00:00Z',
+          end: '2024-01-16T12:00:00Z',
+          status: 'confirmed',
+        },
+      ]
+      const mock_response = {
+        ok: true,
+        json: async () => ({
+          data: mock_events,
+          pagination: { book: 123, page: 1, hasMore: false },
+        }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.fetchEventsForContact(contact_id)
+
+      expect(result).toHaveLength(2)
+      expect(result[0].id).toBe('event-1')
+      expect(result[0].name).toBe('Test Event 1')
+      expect(result[0].start).toBeInstanceOf(Date)
+      expect(result[1].id).toBe('event-2')
+      expect(result[1].start).toBeInstanceOf(Date)
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/contact/${contact_id}/events`),
+        expect.any(Object)
+      )
+    })
+
+    it('should handle pagination correctly', async () => {
+      const contact_id = 'contact-123'
+      const first_page = [
+        { id: 'event-1', name: 'Event 1', start: '2024-01-15T10:00:00Z', end: '2024-01-15T12:00:00Z', status: 'confirmed' },
+      ]
+      const second_page = [
+        { id: 'event-2', name: 'Event 2', start: '2024-01-16T10:00:00Z', end: '2024-01-16T12:00:00Z', status: 'confirmed' },
+      ]
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: first_page,
+            pagination: { book: 123, page: 1, hasMore: true },
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: second_page,
+            pagination: { book: 123, page: 2, hasMore: false },
+          }),
+        } as Response)
+
+      const result = await api_service.fetchEventsForContact(contact_id)
+
+      expect(result).toHaveLength(2)
+      expect(result[0].id).toBe('event-1')
+      expect(result[0].start).toBeInstanceOf(Date)
+      expect(result[1].id).toBe('event-2')
+      expect(result[1].start).toBeInstanceOf(Date)
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('should return empty array when contact has no events', async () => {
+      const contact_id = 'contact-123'
+      const mock_response = {
+        ok: true,
+        json: async () => ({
+          data: [],
+          pagination: { book: 123, page: 1, hasMore: false },
+        }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.fetchEventsForContact(contact_id)
+
+      expect(result).toEqual([])
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/contact/${contact_id}/events`),
+        expect.any(Object)
+      )
+    })
+
+    it('should handle 404 Not Found error gracefully', async () => {
+      const contact_id = 'nonexistent-contact'
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      } as Response)
+
+      await expect(api_service.fetchEventsForContact(contact_id)).rejects.toThrow('does not exist')
+    })
+
+    it('should handle network errors', async () => {
+      const contact_id = 'contact-123'
+      vi.mocked(fetch).mockRejectedValueOnce(new Error('Network error'))
+
+      await expect(api_service.fetchEventsForContact(contact_id)).rejects.toThrow('Network error')
+    })
+
+    it('should handle empty response data', async () => {
+      const contact_id = 'contact-123'
+      const mock_response = {
+        ok: true,
+        json: async () => ({
+          data: null,
+          pagination: { book: 123, page: 1, hasMore: false },
+        }),
+      }
+      vi.mocked(fetch).mockResolvedValueOnce(mock_response as Response)
+
+      const result = await api_service.fetchEventsForContact(contact_id)
+
+      expect(result).toEqual([])
+    })
+  })
+
   describe('Data Transformation Utilities', () => {
     it('should parse ISO 8601 dates to Date objects', () => {
       const iso_string = '2024-01-15T10:00:00Z'

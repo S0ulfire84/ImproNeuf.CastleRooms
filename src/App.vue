@@ -10,80 +10,46 @@ import { filter_events_by_booker } from './utils/filterUtils'
 const api_service = new YesPlanApiService()
 const events = ref<YesPlanEvent[]>([])
 const selected_booker = ref<string>('Impro Neuf') // Default to 'Impro Neuf'
-const event_contacts_map = ref<Record<string, YesPlanContact[]>>({})
 const selected_event_id = ref<string | null>(null)
 const calendar_date = ref<Date>(new Date())
 const loading = ref(false)
 const error = ref<string | null>(null)
+const event_contacts_map = ref<Record<string, YesPlanContact[]>>({})
 const loading_contacts = ref(false)
 
 // Cache for event contacts - tracks which events we've already fetched
 const event_contacts_cache = ref<Record<string, YesPlanContact[]>>({})
-const fetching_event_ids = ref<Set<string>>(new Set())
 
-// Fetch event contacts for specific events (with caching)
-const fetch_event_contacts_batch = async (event_ids: string[]) => {
-  // Filter out events we've already fetched
-  const uncached_ids = event_ids.filter((id) => !(id in event_contacts_cache.value) && !fetching_event_ids.value.has(id))
-  
-  if (uncached_ids.length === 0) {
-    return
-  }
+// Cache for events by date range - avoid refetching the same date ranges
+const events_cache = ref<{
+  start_date: string
+  end_date: string
+  events: YesPlanEvent[]
+} | null>(null)
 
-  // Mark as fetching
-  uncached_ids.forEach((id) => fetching_event_ids.value.add(id))
-
-  try {
-    // Fetch contacts for events in batches to avoid rate limiting
-    // Process in smaller batches with delays between batches
-    const batch_size = 5
-    for (let i = 0; i < uncached_ids.length; i += batch_size) {
-      const batch = uncached_ids.slice(i, i + batch_size)
-      
-      await Promise.all(
-        batch.map(async (event_id) => {
-          try {
-            const event_contacts = await api_service.fetchEventContacts(event_id)
-            event_contacts_cache.value[event_id] = event_contacts
-          } catch (err) {
-            // If fetching fails, event has no contacts
-            event_contacts_cache.value[event_id] = []
-          } finally {
-            fetching_event_ids.value.delete(event_id)
-          }
-        })
-      )
-
-      // Small delay between batches to avoid rate limiting
-      if (i + batch_size < uncached_ids.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-      }
-    }
-
-    // Update the event_contacts_map with newly fetched data
-    event_contacts_map.value = {
-      ...event_contacts_map.value,
-      ...event_contacts_cache.value,
-    }
-  } catch (err) {
-    // Clean up fetching flags on error
-    uncached_ids.forEach((id) => fetching_event_ids.value.delete(id))
-    throw err
-  }
-}
-
-// Fetch event contacts for events visible in a specific month
-const fetch_contacts_for_month = async (date: Date) => {
-  if (events.value.length === 0) {
+// Fetch event contacts for events visible in the current month (lazy loading)
+const fetch_contacts_for_visible_events = async () => {
+  if (events.value.length === 0 || !selected_booker.value) {
     return
   }
 
   loading_contacts.value = true
-  
+
   try {
     // Calculate month boundaries
-    const month_start = new Date(date.getFullYear(), date.getMonth(), 1)
-    const month_end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59)
+    const month_start = new Date(
+      calendar_date.value.getFullYear(),
+      calendar_date.value.getMonth(),
+      1,
+    )
+    const month_end = new Date(
+      calendar_date.value.getFullYear(),
+      calendar_date.value.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    )
 
     // Find events that are visible in this month
     const visible_events = events.value.filter((event) => {
@@ -96,8 +62,37 @@ const fetch_contacts_for_month = async (date: Date) => {
       )
     })
 
-    const visible_event_ids = visible_events.map((event) => event.id)
-    await fetch_event_contacts_batch(visible_event_ids)
+    // Filter out events we've already fetched
+    const uncached_events = visible_events.filter(
+      (event) => !(event.id in event_contacts_cache.value),
+    )
+
+    if (uncached_events.length === 0) {
+      // Update map with cached data
+      event_contacts_map.value = { ...event_contacts_cache.value }
+      return
+    }
+
+    // Fetch contacts for uncached events in batches
+    const batch_size = 5
+    for (let i = 0; i < uncached_events.length; i += batch_size) {
+      const batch = uncached_events.slice(i, i + batch_size)
+
+      await Promise.all(
+        batch.map(async (event) => {
+          try {
+            const contacts = await api_service.fetchEventContacts(event.id)
+            event_contacts_cache.value[event.id] = contacts
+          } catch {
+            // If fetching fails, event has no contacts
+            event_contacts_cache.value[event.id] = []
+          }
+        }),
+      )
+    }
+
+    // Update the event_contacts_map with all cached data
+    event_contacts_map.value = { ...event_contacts_cache.value }
   } catch (err) {
     console.error('Error fetching event contacts:', err)
   } finally {
@@ -105,78 +100,119 @@ const fetch_contacts_for_month = async (date: Date) => {
   }
 }
 
-// Fetch event contacts for events visible in the current month
-const fetch_contacts_for_visible_events = async () => {
-  if (!selected_booker.value) {
-    return
-  }
-  await fetch_contacts_for_month(calendar_date.value)
-}
-
 // Filtered events based on selected booker
 const filtered_events = computed(() => {
   if (!selected_booker.value) {
     return []
   }
+  // Use the filter utility that requires event_contacts_map
   return filter_events_by_booker(events.value, selected_booker.value, event_contacts_map.value)
 })
 
-// Fetch all events once on mount - this is the ONLY place we fetch events
-// Calendar component filters these events client-side by month
-// This ensures we make minimal API calls (only pagination requests needed to get all events)
+// Calculate date range for fetching events (current month ± 2 months)
+const get_date_range = (date: Date) => {
+  const month = date.getMonth()
+  const year = date.getFullYear()
+
+  // Start: 2 months before current month
+  const start_date = new Date(year, month - 2, 1)
+
+  // End: 2 months after current month (last day of that month)
+  const end_date = new Date(year, month + 3, 0, 23, 59, 59, 999)
+
+  return { start_date, end_date }
+}
+
+// Fetch events for the current date range (optimized to avoid rate limiting)
 const fetch_data = async () => {
   loading.value = true
   error.value = null
-  try {
-    // Fetch all events (handles pagination automatically)
-    const fetched_events = await api_service.fetchEvents()
-    events.value = fetched_events
 
-    // Fetch event contacts for visible events after events are loaded
-    // This will happen lazily when booker is selected
+  try {
+    const { start_date, end_date } = get_date_range(calendar_date.value)
+    const start_str = start_date.toISOString().split('T')[0]
+    const end_str = end_date.toISOString().split('T')[0]
+
+    // Check if we already have events for this date range
+    if (
+      events_cache.value &&
+      events_cache.value.start_date === start_str &&
+      events_cache.value.end_date === end_str
+    ) {
+      // Use cached events
+      events.value = events_cache.value.events
+      if (import.meta.env.DEV) {
+        console.log(`[App] Using cached events for date range ${start_str} to ${end_str}`)
+      }
+    } else {
+      // Fetch events for the date range (limit to 5 pages to avoid rate limiting)
+      const fetched_events = await api_service.fetchEvents(start_date, end_date, 5)
+      events.value = fetched_events
+
+      // Cache the events (ensure strings are defined)
+      if (start_str && end_str) {
+        events_cache.value = {
+          start_date: start_str,
+          end_date: end_str,
+          events: fetched_events,
+        }
+      }
+    }
+
+    // Fetch contacts for visible events after events are loaded
     if (selected_booker.value) {
       await fetch_contacts_for_visible_events()
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch data'
+    events.value = []
   } finally {
     loading.value = false
   }
 }
 
+// Watch for booker selection changes - fetch contacts for visible events when booker changes
+watch(
+  selected_booker,
+  async () => {
+    if (events.value.length > 0) {
+      await fetch_contacts_for_visible_events()
+    }
+  },
+  { immediate: false },
+)
+
+// Watch for calendar month changes - fetch events if needed, then contacts
+watch(calendar_date, async () => {
+  const { start_date, end_date } = get_date_range(calendar_date.value)
+  const start_str = start_date.toISOString().split('T')[0]
+  const end_str = end_date.toISOString().split('T')[0]
+
+  // Check if we need to fetch new events for this date range
+  if (
+    !events_cache.value ||
+    events_cache.value.start_date !== start_str ||
+    events_cache.value.end_date !== end_str
+  ) {
+    // Date range changed, fetch new events
+    await fetch_data()
+  } else if (selected_booker.value && events.value.length > 0) {
+    // Same date range, just fetch contacts for visible events
+    await fetch_contacts_for_visible_events()
+  }
+})
+
 const handle_event_selected = async (event_id: string) => {
   selected_event_id.value = event_id
-  
-  // Ensure event contacts are fetched for the selected event
-  if (!(event_id in event_contacts_cache.value)) {
-    await fetch_event_contacts_batch([event_id])
-  }
+  // Event details, resources, and contacts are now fetched lazily in BookingDetailsModal
 }
 
 const handle_modal_close = () => {
   selected_event_id.value = null
 }
 
-// Watch for booker selection changes - fetch contacts for visible events when booker is selected
-watch(
-  [selected_booker, () => events.value.length],
-  async () => {
-    if (selected_booker.value && events.value.length > 0) {
-      await fetch_contacts_for_visible_events()
-    }
-  },
-  { immediate: false }
-)
-
-// Watch for calendar month changes - fetch contacts for events in the new month
-watch(
-  calendar_date,
-  async () => {
-    if (selected_booker.value && events.value.length > 0) {
-      await fetch_contacts_for_month(calendar_date.value)
-    }
-  }
-)
+// Note: Watchers for contact fetching removed (Task 4.3)
+// Contacts are now fetched lazily only when event details modal opens
 
 onMounted(() => {
   fetch_data()
