@@ -9,12 +9,14 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Purpose:** Search for contacts by name to find contact IDs for bookers (Impro Neuf, Oslo Impro Festival).
 
 **Parameters:**
+
 - `query` (path parameter, required): Contact name to search for (e.g., "Impro Neuf")
 - `api_key` (query parameter, required): API authentication key
 - `book` (query parameter, optional): Pagination book identifier
 - `page` (query parameter, optional): Pagination page identifier
 
 **Response:**
+
 ```json
 {
   "data": [
@@ -36,6 +38,7 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Usage:** Called once per booker name to find the contact ID. Results are cached to avoid repeated calls.
 
 **Errors:**
+
 - `401 Unauthorized` - Invalid API key
 - `403 Forbidden` - API key doesn't have permission
 - `404 Not Found` - No contacts found (handled gracefully)
@@ -47,12 +50,14 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Purpose:** Fetch all events associated with a specific contact (booker). This is the primary optimization endpoint that replaces fetching all events and filtering client-side.
 
 **Parameters:**
+
 - `id` (path parameter, required): Contact identifier
 - `api_key` (query parameter, required): API authentication key
 - `book` (query parameter, optional): Pagination book identifier
 - `page` (query parameter, optional): Pagination page identifier
 
 **Response:**
+
 ```json
 {
   "data": [
@@ -77,11 +82,13 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Usage:** Called once per selected booker to fetch all their events. Handles pagination automatically.
 
 **Benefits:**
+
 - Only returns events for the specified contact
 - Eliminates need to fetch all events and filter client-side
 - Significantly reduces data transfer
 
 **Errors:**
+
 - `401 Unauthorized` - Invalid API key
 - `403 Forbidden` - API key doesn't have permission
 - `404 Not Found` - Contact not found (should not happen if contact ID was resolved correctly)
@@ -93,10 +100,12 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Purpose:** Fetch detailed information about a specific event. Used when user opens the booking details modal.
 
 **Parameters:**
+
 - `id` (path parameter, required): Event identifier
 - `api_key` (query parameter, required): API authentication key
 
 **Response:**
+
 ```json
 {
   "id": "event-456",
@@ -115,6 +124,7 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Usage:** Called only when user clicks on an event to view details. Response structure needs to be analyzed to determine if contacts and resources are embedded.
 
 **Errors:**
+
 - `401 Unauthorized` - Invalid API key
 - `403 Forbidden` - API key doesn't have permission
 - `404 Not Found` - Event not found
@@ -126,10 +136,12 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Purpose:** Fetch resources (rooms) associated with an event. May be unnecessary if resources are embedded in event response.
 
 **Parameters:**
+
 - `id` (path parameter, required): Event identifier
 - `api_key` (query parameter, required): API authentication key
 
 **Response:**
+
 ```json
 {
   "data": [
@@ -153,10 +165,12 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 **Purpose:** Fetch contacts associated with an event. May be unnecessary if contacts are embedded in event response.
 
 **Parameters:**
+
 - `id` (path parameter, required): Event identifier
 - `api_key` (query parameter, required): API authentication key
 
 **Response:**
+
 ```json
 {
   "data": [
@@ -180,6 +194,7 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 ### Initial Load (Optimized)
 
 1. **Find Contact ID** (cached after first call)
+
    ```
    GET /api/contacts/Impro Neuf?api_key={key}
    ```
@@ -195,11 +210,13 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-11-
 ### Event Details (Optimized)
 
 1. **Fetch Event Details** (may include embedded data)
+
    ```
    GET /api/event/{id}?api_key={key}
    ```
 
 2. **Fetch Resources** (only if not embedded)
+
    ```
    GET /api/event/{id}/resources?api_key={key}
    ```
@@ -220,6 +237,7 @@ No additional API calls needed since events are already filtered by contact and 
 ### Booker Change (Optimized)
 
 1. **Find Contact ID** (if not cached)
+
    ```
    GET /api/contacts/{bookerName}?api_key={key}
    ```
@@ -273,4 +291,3 @@ While optimizing API calls reduces the risk of rate limiting, the application sh
 - YesPlan API Documentation: `docs/yesplan-api.md`
 - YesPlan REST API Manual: https://manual.yesplan.be/en/developers/rest-api/
 - OpenAPI Specification: https://neuf.yesplan.be/api/openapi.json
-

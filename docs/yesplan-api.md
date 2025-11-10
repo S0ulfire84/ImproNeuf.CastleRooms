@@ -16,6 +16,10 @@ All API requests require authentication using an API key passed as a query param
 ?api_key=YOUR_API_KEY
 ```
 
+## Example Swagger
+
+https://neuf.yesplan.be/swagger/#/%2Fevents/get_events
+
 The API key must be included in every request.
 
 ## API Response Structure

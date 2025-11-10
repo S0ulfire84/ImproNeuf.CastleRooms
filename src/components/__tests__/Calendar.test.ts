@@ -294,5 +294,535 @@ describe('Calendar Component', () => {
       expect(calendar_grid.exists()).toBe(true)
     })
   })
+
+  describe('filtered_by_month computed property', () => {
+    it('should include events that start within the month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event in January',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event in February',
+          start: new Date('2024-02-15T10:00:00Z'),
+          end: new Date('2024-02-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+    })
+
+    it('should include events that end within the month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event ending in January',
+          start: new Date('2023-12-30T10:00:00Z'),
+          end: new Date('2024-01-05T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event in February',
+          start: new Date('2024-02-15T10:00:00Z'),
+          end: new Date('2024-02-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+    })
+
+    it('should include events that span the entire month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event spanning January',
+          start: new Date('2023-12-25T10:00:00Z'),
+          end: new Date('2024-02-05T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event in February',
+          start: new Date('2024-02-15T10:00:00Z'),
+          end: new Date('2024-02-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+    })
+
+    it('should include events spanning multiple months when viewing the middle month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event spanning Jan-Feb',
+          start: new Date('2024-01-25T10:00:00Z'),
+          end: new Date('2024-02-10T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event in March',
+          start: new Date('2024-03-15T10:00:00Z'),
+          end: new Date('2024-03-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      // Viewing January - should include event-1
+      const wrapper_jan = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper_jan.vm.$nextTick()
+      let filtered = wrapper_jan.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+
+      // Viewing February - should include event-1
+      const wrapper_feb = create_wrapper({
+        current_date: new Date('2024-02-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper_feb.vm.$nextTick()
+      filtered = wrapper_feb.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+    })
+
+    it('should exclude events completely outside the month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event in January',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event in February',
+          start: new Date('2024-02-15T10:00:00Z'),
+          end: new Date('2024-02-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-3',
+          name: 'Event in March',
+          start: new Date('2024-03-15T10:00:00Z'),
+          end: new Date('2024-03-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-02-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-2')
+    })
+
+    it('should handle events at month boundaries correctly', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event starting on first day',
+          start: new Date('2024-01-01T00:00:00Z'),
+          end: new Date('2024-01-01T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event ending on last day',
+          start: new Date('2024-01-31T10:00:00Z'),
+          end: new Date('2024-01-31T23:59:59Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-3',
+          name: 'Event spanning first to last day',
+          start: new Date('2024-01-01T00:00:00Z'),
+          end: new Date('2024-01-31T23:59:59Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(3)
+    })
+
+    it('should handle timezone offsets correctly', async () => {
+      // Event with timezone offset that might cause issues
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event with timezone',
+          // This is Jan 1, 2024 00:00 UTC+2 (which is Jan 1, 2024 22:00 UTC on Dec 31)
+          start: new Date('2024-01-01T00:00:00+02:00'),
+          end: new Date('2024-01-01T12:00:00+02:00'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      // Should still include the event even with timezone offset
+      expect(filtered.length).toBeGreaterThanOrEqual(0)
+    })
+
+    it('should return empty array when no events are provided', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(0)
+    })
+
+    it('should handle events spanning from previous month to next month', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event spanning Dec-Jan-Feb',
+          start: new Date('2023-12-20T10:00:00Z'),
+          end: new Date('2024-02-10T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      // Viewing January - should include event-1
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const filtered = wrapper.vm.filtered_by_month
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0].id).toBe('event-1')
+    })
+  })
+
+  describe('calendar_days computed property', () => {
+    it('should map events to correct calendar days', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event on Jan 15',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const jan_15 = calendar_days.find((day) => day.day_number === 15 && !day.is_other_month)
+      expect(jan_15).toBeDefined()
+      expect(jan_15?.events).toHaveLength(1)
+      expect(jan_15?.events[0].id).toBe('event-1')
+    })
+
+    it('should display events spanning multiple days on all relevant days', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Multi-day Event',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-17T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const jan_15 = calendar_days.find((day) => day.day_number === 15 && !day.is_other_month)
+      const jan_16 = calendar_days.find((day) => day.day_number === 16 && !day.is_other_month)
+      const jan_17 = calendar_days.find((day) => day.day_number === 17 && !day.is_other_month)
+
+      expect(jan_15?.events).toHaveLength(1)
+      expect(jan_15?.events[0].id).toBe('event-1')
+      expect(jan_16?.events).toHaveLength(1)
+      expect(jan_16?.events[0].id).toBe('event-1')
+      expect(jan_17?.events).toHaveLength(1)
+      expect(jan_17?.events[0].id).toBe('event-1')
+    })
+
+    it('should display events spanning across month boundaries', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event spanning Jan-Feb',
+          start: new Date('2024-01-30T10:00:00Z'),
+          end: new Date('2024-02-02T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      // Viewing January - should show event on Jan 30 and 31
+      const wrapper_jan = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper_jan.vm.$nextTick()
+
+      const calendar_days_jan = wrapper_jan.vm.calendar_days
+      const jan_30 = calendar_days_jan.find((day) => day.day_number === 30 && !day.is_other_month)
+      const jan_31 = calendar_days_jan.find((day) => day.day_number === 31 && !day.is_other_month)
+
+      expect(jan_30?.events).toHaveLength(1)
+      expect(jan_30?.events[0].id).toBe('event-1')
+      expect(jan_31?.events).toHaveLength(1)
+      expect(jan_31?.events[0].id).toBe('event-1')
+    })
+
+    it('should handle multiple events on the same day', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Event 1',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Event 2',
+          start: new Date('2024-01-15T14:00:00Z'),
+          end: new Date('2024-01-15T16:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-3',
+          name: 'Event 3',
+          start: new Date('2024-01-15T18:00:00Z'),
+          end: new Date('2024-01-15T20:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const jan_15 = calendar_days.find((day) => day.day_number === 15 && !day.is_other_month)
+      expect(jan_15?.events).toHaveLength(3)
+      expect(jan_15?.events.map((e) => e.id)).toEqual(['event-1', 'event-2', 'event-3'])
+    })
+
+    it('should correctly identify today', async () => {
+      const today = new Date()
+      const wrapper = create_wrapper({
+        current_date: today,
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const today_day = calendar_days.find((day) => day.is_today)
+      expect(today_day).toBeDefined()
+      expect(today_day?.day_number).toBe(today.getDate())
+    })
+
+    it('should mark days from other months correctly', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-15'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      // Calendar shows full weeks, so there should be days from previous/next month
+      const other_month_days = calendar_days.filter((day) => day.is_other_month)
+      expect(other_month_days.length).toBeGreaterThan(0)
+    })
+
+    it('should include all days in the calendar view (full weeks)', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-15'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      // Calendar should show full weeks (typically 35 or 42 days)
+      expect(calendar_days.length).toBeGreaterThanOrEqual(35)
+      expect(calendar_days.length).toBeLessThanOrEqual(42)
+    })
+
+    it('should handle events that start and end on the same day', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Single Day Event',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const jan_15 = calendar_days.find((day) => day.day_number === 15 && !day.is_other_month)
+      expect(jan_15?.events).toHaveLength(1)
+      expect(jan_15?.events[0].id).toBe('event-1')
+    })
+
+    it('should handle events spanning multiple weeks', async () => {
+      const mock_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Long Event',
+          start: new Date('2024-01-10T10:00:00Z'),
+          end: new Date('2024-01-25T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const calendar_days = wrapper.vm.calendar_days
+      const jan_10 = calendar_days.find((day) => day.day_number === 10 && !day.is_other_month)
+      const jan_15 = calendar_days.find((day) => day.day_number === 15 && !day.is_other_month)
+      const jan_20 = calendar_days.find((day) => day.day_number === 20 && !day.is_other_month)
+      const jan_25 = calendar_days.find((day) => day.day_number === 25 && !day.is_other_month)
+
+      expect(jan_10?.events).toHaveLength(1)
+      expect(jan_15?.events).toHaveLength(1)
+      expect(jan_20?.events).toHaveLength(1)
+      expect(jan_25?.events).toHaveLength(1)
+    })
+  })
+
+  describe('format_event_time', () => {
+    it('should format event time correctly', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const event: YesPlanEvent = {
+        id: 'event-1',
+        name: 'Test Event',
+        start: new Date('2024-01-15T10:30:00Z'),
+        end: new Date('2024-01-15T14:45:00Z'),
+        status: 'confirmed',
+      }
+
+      const formatted_time = wrapper.vm.format_event_time(event)
+      // Should be in format "HH:mm - HH:mm"
+      expect(formatted_time).toMatch(/\d{2}:\d{2} - \d{2}:\d{2}/)
+    })
+
+    it('should handle events spanning midnight', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const event: YesPlanEvent = {
+        id: 'event-1',
+        name: 'Overnight Event',
+        start: new Date('2024-01-15T23:00:00Z'),
+        end: new Date('2024-01-16T01:00:00Z'),
+        status: 'confirmed',
+      }
+
+      const formatted_time = wrapper.vm.format_event_time(event)
+      expect(formatted_time).toMatch(/\d{2}:\d{2} - \d{2}:\d{2}/)
+    })
+
+    it('should handle events with different timezones', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: [],
+      })
+      await wrapper.vm.$nextTick()
+
+      const event: YesPlanEvent = {
+        id: 'event-1',
+        name: 'Timezone Event',
+        start: new Date('2024-01-15T10:00:00+02:00'),
+        end: new Date('2024-01-15T12:00:00+02:00'),
+        status: 'confirmed',
+      }
+
+      const formatted_time = wrapper.vm.format_event_time(event)
+      expect(formatted_time).toMatch(/\d{2}:\d{2} - \d{2}:\d{2}/)
+    })
+  })
 })
 

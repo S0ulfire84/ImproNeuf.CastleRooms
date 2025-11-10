@@ -14,6 +14,7 @@ Optimize the application's API call strategy to minimize the number of requests 
 I want the application to load booking data quickly and efficiently, so that I can view room availability without experiencing slow load times or rate limiting issues.
 
 **Workflow:**
+
 1. User opens the application
 2. Application identifies the Impro Neuf contact ID (or other selected booker)
 3. Application fetches only events for that contact using the relationship endpoint
@@ -25,6 +26,7 @@ I want the application to load booking data quickly and efficiently, so that I c
 I want the application to make minimal API calls, so that we avoid rate limiting, reduce server load, and improve application performance.
 
 **Workflow:**
+
 1. Application makes a single call to find the contact ID for the selected booker
 2. Application makes a single call (with pagination) to get all events for that contact
 3. Application uses event data that may already include embedded resources/contacts
@@ -57,4 +59,3 @@ I want the application to make minimal API calls, so that we avoid rate limiting
 3. Application uses relationship endpoints (`/api/contact/{id}/events`) instead of fetching all events and filtering client-side
 4. Event details modal loads with minimal additional API calls (ideally 1-2 calls maximum)
 5. All existing functionality (calendar view, filtering, event details) continues to work as before
-

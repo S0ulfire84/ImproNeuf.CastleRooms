@@ -45,15 +45,45 @@ export function filter_events_by_booker(
   const relevant_bookers = ['Impro Neuf', 'Oslo Impro Festival']
 
   return events.filter((event) => {
+    // Get contact names from the contacts map
     const event_contacts = event_contacts_map[event.id] || []
     const contact_names = event_contacts.map((contact) => contact.name)
 
+    // Also check the owner field from the event (owner might not be in contacts)
+    let owner_name: string | undefined
+    if (event.owner) {
+      if (typeof event.owner === 'object' && event.owner !== null && 'name' in event.owner) {
+        owner_name = String((event.owner as { name: string }).name)
+      } else if (typeof event.owner === 'string') {
+        owner_name = event.owner
+      }
+    }
+
+    // Combine contact names and owner name for matching
+    const all_names = [...contact_names]
+    if (owner_name) {
+      all_names.push(owner_name)
+    }
+
+    if (import.meta.env.DEV) {
+      if (owner_name && !contact_names.includes(owner_name)) {
+        console.log('[filterUtils] filter_events_by_booker: Using owner field for filtering', {
+          event_id: event.id,
+          event_name: event.name,
+          owner_name,
+          contact_names,
+          all_names,
+          selected_booker,
+        })
+      }
+    }
+
     if (selected_booker === 'Other') {
-      // Show events that don't have Impro Neuf or Oslo Impro Festival as contacts
-      return !contact_names.some((name) => relevant_bookers.includes(name))
+      // Show events that don't have Impro Neuf or Oslo Impro Festival as contacts or owner
+      return !all_names.some((name) => relevant_bookers.includes(name))
     } else {
-      // Show events that have the selected booker as a contact
-      return contact_names.includes(selected_booker)
+      // Show events that have the selected booker as a contact or owner
+      return all_names.includes(selected_booker)
     }
   })
 }

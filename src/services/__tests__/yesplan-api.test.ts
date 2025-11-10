@@ -454,7 +454,7 @@ describe('YesPlanApiService', () => {
       expect(result[1].id).toBe('event-2')
       expect(result[1].start).toBeInstanceOf(Date)
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(`/api/contact/${contact_id}/events`),
+        expect.stringContaining('/api/events'),
         expect.any(Object)
       )
     })
@@ -509,7 +509,7 @@ describe('YesPlanApiService', () => {
 
       expect(result).toEqual([])
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(`/api/contact/${contact_id}/events`),
+        expect.stringContaining('/api/events'),
         expect.any(Object)
       )
     })
@@ -558,20 +558,204 @@ describe('YesPlanApiService', () => {
       expect(date.toISOString()).toBe('2024-01-15T10:00:00.000Z')
     })
 
-    it('should normalize event data structure', () => {
-      const raw_event: Record<string, unknown> = {
-        id: 'event-1',
-        name: 'Test Event',
-        start: '2024-01-15T10:00:00Z',
-        end: '2024-01-15T12:00:00Z',
-        status: 'confirmed',
-      }
-      const normalized = api_service.normalizeEvent(raw_event)
+    describe('normalizeEvent', () => {
+      it('should normalize event with starttime and endtime fields', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-1',
+          name: 'Test Event',
+          starttime: '2024-01-15T10:00:00Z',
+          endtime: '2024-01-15T12:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
 
-      expect(normalized).toHaveProperty('id', 'event-1')
-      expect(normalized).toHaveProperty('name', 'Test Event')
-      expect(normalized.start).toBeInstanceOf(Date)
-      expect(normalized.end).toBeInstanceOf(Date)
+        expect(normalized).toHaveProperty('id', 'event-1')
+        expect(normalized).toHaveProperty('name', 'Test Event')
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        expect(normalized.start.toISOString()).toBe('2024-01-15T10:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-15T12:00:00.000Z')
+      })
+
+      it('should normalize event with defaultschedulestart and defaultscheduleend fields', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-2',
+          name: 'Test Event 2',
+          defaultschedulestart: '2024-01-16T14:00:00Z',
+          defaultscheduleend: '2024-01-16T16:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized).toHaveProperty('id', 'event-2')
+        expect(normalized).toHaveProperty('name', 'Test Event 2')
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        expect(normalized.start.toISOString()).toBe('2024-01-16T14:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-16T16:00:00.000Z')
+      })
+
+      it('should normalize event with start and end fields (fallback)', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-3',
+          name: 'Test Event 3',
+          start: '2024-01-17T09:00:00Z',
+          end: '2024-01-17T11:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized).toHaveProperty('id', 'event-3')
+        expect(normalized).toHaveProperty('name', 'Test Event 3')
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        expect(normalized.start.toISOString()).toBe('2024-01-17T09:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-17T11:00:00.000Z')
+      })
+
+      it('should prioritize starttime over defaultschedulestart', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-4',
+          name: 'Test Event 4',
+          starttime: '2024-01-18T10:00:00Z',
+          defaultschedulestart: '2024-01-18T09:00:00Z',
+          endtime: '2024-01-18T12:00:00Z',
+          defaultscheduleend: '2024-01-18T11:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.start.toISOString()).toBe('2024-01-18T10:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-18T12:00:00.000Z')
+      })
+
+      it('should handle timezone offsets correctly', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-5',
+          name: 'Test Event 5',
+          starttime: '2024-01-19T17:30:00+02:00',
+          endtime: '2024-01-19T19:30:00+02:00',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        // The date should be correctly parsed with timezone offset
+        expect(normalized.start.toISOString()).toBe('2024-01-19T15:30:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-19T17:30:00.000Z')
+      })
+
+      it('should handle null starttime and endtime values', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-6',
+          name: 'Test Event 6',
+          starttime: null,
+          endtime: null,
+          defaultschedulestart: '2024-01-20T10:00:00Z',
+          defaultscheduleend: '2024-01-20T12:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        // Should fall back to defaultschedulestart/defaultscheduleend
+        expect(normalized.start.toISOString()).toBe('2024-01-20T10:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-20T12:00:00.000Z')
+      })
+
+      it('should handle missing date fields by using current date', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-7',
+          name: 'Test Event 7',
+          status: 'confirmed',
+        }
+        const before_normalization = new Date()
+        const normalized = api_service.normalizeEvent(raw_event)
+        const after_normalization = new Date()
+
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        // Should use current date when no date fields are present
+        expect(normalized.start.getTime()).toBeGreaterThanOrEqual(before_normalization.getTime())
+        expect(normalized.start.getTime()).toBeLessThanOrEqual(after_normalization.getTime())
+        expect(normalized.end.getTime()).toBeGreaterThanOrEqual(before_normalization.getTime())
+        expect(normalized.end.getTime()).toBeLessThanOrEqual(after_normalization.getTime())
+      })
+
+      it('should handle status as object with name property', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-8',
+          name: 'Test Event 8',
+          starttime: '2024-01-21T10:00:00Z',
+          endtime: '2024-01-21T12:00:00Z',
+          status: { name: 'confirmed' },
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.status).toBe('confirmed')
+      })
+
+      it('should handle status as string', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-9',
+          name: 'Test Event 9',
+          starttime: '2024-01-22T10:00:00Z',
+          endtime: '2024-01-22T12:00:00Z',
+          status: 'tentative',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.status).toBe('tentative')
+      })
+
+      it('should handle missing status', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-10',
+          name: 'Test Event 10',
+          starttime: '2024-01-23T10:00:00Z',
+          endtime: '2024-01-23T12:00:00Z',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.status).toBe('')
+      })
+
+      it('should preserve all original event properties', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-11',
+          name: 'Test Event 11',
+          starttime: '2024-01-24T10:00:00Z',
+          endtime: '2024-01-24T12:00:00Z',
+          status: 'confirmed',
+          description: 'Event description',
+          custom_field: 'custom value',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.description).toBe('Event description')
+        expect(normalized.custom_field).toBe('custom value')
+      })
+
+      it('should handle empty string date values', () => {
+        const raw_event: Record<string, unknown> = {
+          id: 'event-12',
+          name: 'Test Event 12',
+          starttime: '',
+          endtime: '',
+          defaultschedulestart: '2024-01-25T10:00:00Z',
+          defaultscheduleend: '2024-01-25T12:00:00Z',
+          status: 'confirmed',
+        }
+        const normalized = api_service.normalizeEvent(raw_event)
+
+        expect(normalized.start).toBeInstanceOf(Date)
+        expect(normalized.end).toBeInstanceOf(Date)
+        // Should fall back to defaultschedulestart/defaultscheduleend
+        expect(normalized.start.toISOString()).toBe('2024-01-25T10:00:00.000Z')
+        expect(normalized.end.toISOString()).toBe('2024-01-25T12:00:00.000Z')
+      })
     })
 
     it('should normalize resource data structure', () => {

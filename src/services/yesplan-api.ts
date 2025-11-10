@@ -52,6 +52,9 @@ export class YesPlanApiService {
   private api_key: string
   private base_url: string
   private contact_cache: Map<string, string> = new Map()
+  private last_endpoint: string | null = null
+  private consecutive_call_count: number = 0
+  private readonly RATE_LIMIT = 5
 
   constructor() {
     const api_key = import.meta.env.VITE_YESPLAN_API_KEY
@@ -60,6 +63,40 @@ export class YesPlanApiService {
     }
     this.api_key = api_key
     this.base_url = BASE_URL
+  }
+
+  /**
+   * Extract endpoint path without query parameters for rate limiting
+   */
+  private extractEndpointPath(endpoint: string): string {
+    // Remove query parameters if present
+    const path = endpoint.split('?')[0]
+    // Normalize path: ensure it starts with / and remove trailing slashes
+    const normalized = path.replace(/\/+$/, '') || '/'
+    return normalized.startsWith('/') ? normalized : `/${normalized}`
+  }
+
+  /**
+   * Check rate limit for consecutive calls to the same endpoint
+   */
+  private checkRateLimit(endpoint: string): void {
+    const endpoint_path = this.extractEndpointPath(endpoint)
+
+    if (this.last_endpoint === endpoint_path) {
+      // Same endpoint - increment counter
+      this.consecutive_call_count++
+      
+      if (this.consecutive_call_count > this.RATE_LIMIT) {
+        throw new Error(
+          `Rate limit exceeded: More than ${this.RATE_LIMIT} consecutive calls to the same endpoint (${endpoint_path}). ` +
+          'Please wait before making more calls to this endpoint.'
+        )
+      }
+    } else {
+      // Different endpoint - reset counter
+      this.last_endpoint = endpoint_path
+      this.consecutive_call_count = 1
+    }
   }
 
   /**
@@ -94,9 +131,12 @@ export class YesPlanApiService {
   }
 
   /**
-   * Make API request with error handling
+   * Make API request with error handling and rate limiting
    */
   private async request<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
+    // Check rate limit before making the request
+    this.checkRateLimit(endpoint)
+
     const url = this.build_url(endpoint, params)
 
     try {
@@ -145,6 +185,29 @@ export class YesPlanApiService {
   }
 
   /**
+   * Format date as DD-MM-YYYY for YesPlan API
+   */
+  private formatDateForApi(date: Date): string {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}-${month}-${year}`
+  }
+
+  /**
+   * Build events endpoint path with optional date filter
+   */
+  private buildEventsEndpoint(start_date?: Date, end_date?: Date): string {
+    if (start_date && end_date) {
+      const start_str = this.formatDateForApi(start_date)
+      const end_str = this.formatDateForApi(end_date)
+      const filter = `date:${start_str} TO ${end_str}`
+      return `/events/${encodeURIComponent(filter)}`
+    }
+    return '/events'
+  }
+
+  /**
    * Fetch events with pagination support, optionally limited to a date range
    * 
    * @param start_date - Optional start date to limit fetching (only fetch events after this date)
@@ -152,11 +215,22 @@ export class YesPlanApiService {
    * @param max_pages - Maximum number of pages to fetch (default: 10 to avoid rate limiting)
    */
   async fetchEvents(start_date?: Date, end_date?: Date, max_pages: number = 10): Promise<YesPlanEvent[]> {
+    if (import.meta.env.DEV) {
+      console.log('[YesPlanApiService] fetchEvents: Starting event fetch', {
+        start_date: start_date?.toISOString(),
+        end_date: end_date?.toISOString(),
+        max_pages,
+      })
+    }
+
     const all_events: YesPlanEvent[] = []
     let book: number | undefined = undefined
     let page = 1
     let has_more = true
     let pages_fetched = 0
+
+    // Build the endpoint path with date filter if provided
+    const endpoint = this.buildEventsEndpoint(start_date, end_date)
 
     while (has_more && pages_fetched < max_pages) {
       const params: Record<string, string | number> = {}
@@ -165,42 +239,109 @@ export class YesPlanApiService {
         params.page = page
       }
 
-      const response = await this.request<YesPlanResponse<unknown>>('/events', params)
-      const events = (response.data || []).map((event: unknown) => this.normalizeEvent(event as Record<string, unknown>))
-      
-      // Filter events by date range if provided
-      let filtered_events = events
-      if (start_date || end_date) {
-        filtered_events = events.filter((event) => {
-          const event_start = new Date(event.start)
-          const event_end = new Date(event.end)
-          
-          if (start_date && event_end < start_date) {
-            return false // Event ends before start_date
-          }
-          if (end_date && event_start > end_date) {
-            return false // Event starts after end_date
-          }
-          return true
+      if (import.meta.env.DEV) {
+        console.log('[YesPlanApiService] fetchEvents: Fetching page', {
+          page,
+          book,
+          params,
+          endpoint,
         })
       }
-      
-      all_events.push(...filtered_events)
-      pages_fetched++
 
-      // If we have a date range and all events in this page are outside the range, we can stop
-      if (start_date && end_date && filtered_events.length === 0 && events.length > 0) {
-        // Check if all events are before start_date (we've gone too far back)
-        const all_before = events.every((event) => {
-          const event_end = new Date(event.end)
-          return event_end < start_date
+      const response = await this.request<YesPlanResponse<unknown>>(endpoint, params)
+      
+      if (import.meta.env.DEV) {
+        console.log('[YesPlanApiService] fetchEvents: Raw API response received', {
+          page,
+          book,
+          total_items: response.data?.length || 0,
+          has_pagination: !!response.pagination,
+          pagination_info: response.pagination ? {
+            book: response.pagination.book,
+            page: response.pagination.page,
+            hasMore: response.pagination.hasMore,
+            next: response.pagination.next,
+          } : null,
+          sample_event_keys: response.data?.[0] ? Object.keys(response.data[0] as Record<string, unknown>) : [],
         })
-        if (all_before) {
-          // All events are before our range, stop fetching
-          has_more = false
-          break
+        
+        // Log raw events from API response - PROMINENT LOGGING FOR DEBUGGING
+        if (response.data && response.data.length > 0) {
+          console.log('═══════════════════════════════════════════════════════════')
+          console.log(`📅 EVENTS FROM /events ENDPOINT (Page ${page})`)
+          console.log(`   Total events in this page: ${response.data.length}`)
+          console.log('═══════════════════════════════════════════════════════════')
+          
+          response.data.forEach((event: unknown, index: number) => {
+            const e = event as Record<string, unknown>
+            console.log(`\n[Event ${index + 1}]`, {
+              id: e.id,
+              name: e.name,
+              starttime: e.starttime,
+              endtime: e.endtime,
+              defaultschedulestart: e.defaultschedulestart,
+              defaultscheduleend: e.defaultscheduleend,
+              start: e.start,
+              end: e.end,
+              owner: e.owner,
+              status: e.status,
+            })
+          })
+          
+          console.log('═══════════════════════════════════════════════════════════\n')
+          
+          // Also log as a structured object for easier inspection
+          console.log('[YesPlanApiService] fetchEvents: Raw events from API (structured)', {
+            page,
+            event_count: response.data.length,
+            events: response.data.map((event: unknown) => {
+              const e = event as Record<string, unknown>
+              return {
+                id: e.id,
+                name: e.name,
+                starttime: e.starttime,
+                endtime: e.endtime,
+                defaultschedulestart: e.defaultschedulestart,
+                defaultscheduleend: e.defaultscheduleend,
+                start: e.start,
+                end: e.end,
+                owner: e.owner,
+                status: e.status,
+              }
+            }),
+          })
+        } else {
+          console.log('⚠️  No events returned from /events endpoint for this page')
         }
       }
+
+      const events = (response.data || []).map((event: unknown) => this.normalizeEvent(event as Record<string, unknown>))
+      
+      if (import.meta.env.DEV && page === 1) {
+        // Log normalized events from first page
+        console.log('[YesPlanApiService] fetchEvents: Normalized events (page 1)', {
+          event_count: events.length,
+          events: events.map((e) => ({
+            id: e.id,
+            name: e.name,
+            start: e.start.toISOString(),
+            end: e.end.toISOString(),
+            status: e.status,
+            owner: e.owner,
+          })),
+        })
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('[YesPlanApiService] fetchEvents: Page processed', {
+          page,
+          events_in_page: events.length,
+          total_events_so_far: all_events.length + events.length,
+        })
+      }
+      
+      all_events.push(...events)
+      pages_fetched++
 
       if (response.pagination) {
         // Check if there's a next page using either 'next' URL or 'hasMore' flag
@@ -233,7 +374,15 @@ export class YesPlanApiService {
     }
 
     if (import.meta.env.DEV) {
-      console.log(`[YesPlanApiService] Fetched ${all_events.length} events from ${pages_fetched} pages${start_date || end_date ? ` (date range: ${start_date?.toISOString().split('T')[0]} to ${end_date?.toISOString().split('T')[0]})` : ''}`)
+      console.log('[YesPlanApiService] fetchEvents: Fetch complete', {
+        total_events: all_events.length,
+        pages_fetched,
+        date_range: start_date || end_date ? {
+          start: start_date?.toISOString().split('T')[0],
+          end: end_date?.toISOString().split('T')[0],
+        } : null,
+        sample_event_ids: all_events.slice(0, 5).map((e) => e.id),
+      })
     }
 
     return all_events
@@ -290,7 +439,7 @@ export class YesPlanApiService {
 
       if (response.pagination) {
         book = response.pagination.book
-        has_more = response.pagination.hasMore
+        has_more = response.pagination.hasMore ?? false
         page++
       } else {
         has_more = false
@@ -511,8 +660,27 @@ export class YesPlanApiService {
    * Normalize event data structure
    */
   normalizeEvent(raw_event: Record<string, unknown>): YesPlanEvent {
+    // Log before normalization in development mode
+    if (import.meta.env.DEV) {
+      console.log('[YesPlanApiService] normalizeEvent: Before normalization', {
+        event_id: raw_event.id,
+        has_starttime: !!raw_event.starttime,
+        has_endtime: !!raw_event.endtime,
+        has_defaultschedulestart: !!raw_event.defaultschedulestart,
+        has_defaultscheduleend: !!raw_event.defaultscheduleend,
+        has_start: !!raw_event.start,
+        has_end: !!raw_event.end,
+        starttime: raw_event.starttime,
+        endtime: raw_event.endtime,
+        defaultschedulestart: raw_event.defaultschedulestart,
+        defaultscheduleend: raw_event.defaultscheduleend,
+      })
+    }
+
     // Extract start and end times - API uses 'starttime' and 'endtime'
+    // Priority: starttime > start > defaultschedulestart
     const start_time = raw_event.starttime || raw_event.start || raw_event.defaultschedulestart
+    // Priority: endtime > end > defaultscheduleend
     const end_time = raw_event.endtime || raw_event.end || raw_event.defaultscheduleend
     
     // Extract status - API returns status as an object with 'name' property
@@ -525,15 +693,111 @@ export class YesPlanApiService {
       }
     }
     
+    // Parse dates with validation
+    let start_date: Date
+    let end_date: Date
+    
+    if (start_time && start_time !== null && String(start_time).trim() !== '') {
+      try {
+        start_date = this.parseDate(String(start_time))
+        // Validate the parsed date
+        if (isNaN(start_date.getTime())) {
+          if (import.meta.env.DEV) {
+            console.warn('[YesPlanApiService] normalizeEvent: Invalid start date, using current date', {
+              event_id: raw_event.id,
+              start_time,
+            })
+          }
+          start_date = new Date()
+        }
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[YesPlanApiService] normalizeEvent: Error parsing start date, using current date', {
+            event_id: raw_event.id,
+            start_time,
+            error,
+          })
+        }
+        start_date = new Date()
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.warn('[YesPlanApiService] normalizeEvent: No start time found, using current date', {
+          event_id: raw_event.id,
+        })
+      }
+      start_date = new Date()
+    }
+    
+    if (end_time && end_time !== null && String(end_time).trim() !== '') {
+      try {
+        end_date = this.parseDate(String(end_time))
+        // Validate the parsed date
+        if (isNaN(end_date.getTime())) {
+          if (import.meta.env.DEV) {
+            console.warn('[YesPlanApiService] normalizeEvent: Invalid end date, using current date', {
+              event_id: raw_event.id,
+              end_time,
+            })
+          }
+          end_date = new Date()
+        }
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[YesPlanApiService] normalizeEvent: Error parsing end date, using current date', {
+            event_id: raw_event.id,
+            end_time,
+            error,
+          })
+        }
+        end_date = new Date()
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.warn('[YesPlanApiService] normalizeEvent: No end time found, using current date', {
+          event_id: raw_event.id,
+        })
+      }
+      end_date = new Date()
+    }
+    
     const normalized: YesPlanEvent = {
       ...raw_event,
       id: String(raw_event.id || ''),
       name: String(raw_event.name || ''),
-      start: start_time ? this.parseDate(String(start_time)) : new Date(),
-      end: end_time ? this.parseDate(String(end_time)) : new Date(),
+      start: start_date,
+      end: end_date,
       status: status_value,
       description: raw_event.description ? String(raw_event.description) : undefined,
     }
+    
+    // Log after normalization in development mode
+    if (import.meta.env.DEV) {
+      console.log('[YesPlanApiService] normalizeEvent: After normalization', {
+        event_id: normalized.id,
+        event_name: normalized.name,
+        start: normalized.start.toISOString(),
+        end: normalized.end.toISOString(),
+        status: normalized.status,
+        start_is_valid: !isNaN(normalized.start.getTime()),
+        end_is_valid: !isNaN(normalized.end.getTime()),
+      })
+    }
+    
+    // Final validation - ensure dates are valid
+    if (isNaN(normalized.start.getTime()) || isNaN(normalized.end.getTime())) {
+      if (import.meta.env.DEV) {
+        console.error('[YesPlanApiService] normalizeEvent: Normalized event has invalid dates', {
+          event_id: normalized.id,
+          start_valid: !isNaN(normalized.start.getTime()),
+          end_valid: !isNaN(normalized.end.getTime()),
+        })
+      }
+      // Fallback to current date if validation fails
+      normalized.start = isNaN(normalized.start.getTime()) ? new Date() : normalized.start
+      normalized.end = isNaN(normalized.end.getTime()) ? new Date() : normalized.end
+    }
+    
     return normalized
   }
 

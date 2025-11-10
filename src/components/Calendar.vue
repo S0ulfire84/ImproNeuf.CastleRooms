@@ -92,33 +92,107 @@ watch(
 // Use filtered_events prop - events are always provided from App.vue
 // This ensures we only make one API call to fetch all events
 const displayed_events = computed(() => {
-  return props.filtered_events || []
+  const events = props.filtered_events || []
+  
+  if (import.meta.env.DEV) {
+    console.log('[Calendar] displayed_events: Events received from App', {
+      event_count: events.length,
+      events: events.map((e) => ({
+        id: e.id,
+        name: e.name,
+        start: e.start.toISOString(),
+        end: e.end.toISOString(),
+        owner: e.owner,
+      })),
+    })
+  }
+  
+  return events
 })
 
 // Filter displayed events by current month
 const filtered_by_month = computed(() => {
   const events_to_filter = displayed_events.value
   if (events_to_filter.length === 0) {
+    if (import.meta.env.DEV) {
+      console.log('[Calendar] filtered_by_month: No events to filter')
+    }
     return []
   }
 
   const month_start = startOfMonth(current_date.value)
   const month_end = endOfMonth(current_date.value)
   
-  return events_to_filter.filter((event) => {
+  if (import.meta.env.DEV) {
+    console.log('[Calendar] filtered_by_month: Filtering events', {
+      total_events: events_to_filter.length,
+      current_month: format(current_date.value, 'yyyy-MM'),
+      month_start: month_start.toISOString(),
+      month_end: month_end.toISOString(),
+    })
+  }
+  
+  const filtered = events_to_filter.filter((event) => {
     const event_start = new Date(event.start)
     const event_end = new Date(event.end)
+    
+    // Validate dates
+    if (isNaN(event_start.getTime()) || isNaN(event_end.getTime())) {
+      if (import.meta.env.DEV) {
+        console.warn('[Calendar] filtered_by_month: Event has invalid dates', {
+          event_id: event.id,
+          event_name: event.name,
+          start_valid: !isNaN(event_start.getTime()),
+          end_valid: !isNaN(event_end.getTime()),
+        })
+      }
+      return false
+    }
     
     // Event overlaps with month if:
     // - Event starts within the month, OR
     // - Event ends within the month, OR
     // - Event spans the entire month
-    return (
-      (event_start >= month_start && event_start <= month_end) ||
-      (event_end >= month_start && event_end <= month_end) ||
-      (event_start <= month_start && event_end >= month_end)
-    )
+    const starts_in_month = event_start >= month_start && event_start <= month_end
+    const ends_in_month = event_end >= month_start && event_end <= month_end
+    const spans_month = event_start <= month_start && event_end >= month_end
+    
+    const overlaps = starts_in_month || ends_in_month || spans_month
+    
+    if (import.meta.env.DEV) {
+      if (!overlaps) {
+        console.log('[Calendar] filtered_by_month: Event excluded', {
+          event_id: event.id,
+          event_name: event.name,
+          event_start: event_start.toISOString(),
+          event_end: event_end.toISOString(),
+          month_start: month_start.toISOString(),
+          month_end: month_end.toISOString(),
+          reason: !starts_in_month && !ends_in_month && !spans_month ? 'completely outside month' : 'unknown',
+        })
+      } else {
+        console.log('[Calendar] filtered_by_month: Event included', {
+          event_id: event.id,
+          event_name: event.name,
+          event_start: event_start.toISOString(),
+          event_end: event_end.toISOString(),
+          reason: starts_in_month ? 'starts in month' : ends_in_month ? 'ends in month' : 'spans month',
+        })
+      }
+    }
+    
+    return overlaps
   })
+  
+  if (import.meta.env.DEV) {
+    console.log('[Calendar] filtered_by_month: Filtering complete', {
+      total_events: events_to_filter.length,
+      filtered_count: filtered.length,
+      excluded_count: events_to_filter.length - filtered.length,
+    })
+  }
+  
+  return filtered
 })
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -144,20 +218,58 @@ const calendar_days = computed((): CalendarDay[] => {
   const calendar_start = startOfWeek(month_start, { weekStartsOn: 0 })
   const calendar_end = endOfWeek(month_end, { weekStartsOn: 0 })
 
+  if (import.meta.env.DEV) {
+    console.log('[Calendar] calendar_days: Computing calendar days', {
+      current_month: format(current_date.value, 'yyyy-MM'),
+      month_start: month_start.toISOString(),
+      month_end: month_end.toISOString(),
+      calendar_start: calendar_start.toISOString(),
+      calendar_end: calendar_end.toISOString(),
+      total_events: filtered_by_month.value.length,
+    })
+  }
+
   const days_in_range = eachDayOfInterval({
     start: calendar_start,
     end: calendar_end,
   })
 
-  return days_in_range.map((date) => {
+  const calendar_days_result = days_in_range.map((date) => {
     const day_events = filtered_by_month.value.filter((event) => {
       const event_start = new Date(event.start)
       const event_end = new Date(event.end)
-      return (
-        isSameDay(event_start, date) ||
-        isSameDay(event_end, date) ||
-        (event_start <= date && event_end >= date)
-      )
+      
+      // Validate dates
+      if (isNaN(event_start.getTime()) || isNaN(event_end.getTime())) {
+        if (import.meta.env.DEV) {
+          console.warn('[Calendar] calendar_days: Event has invalid dates', {
+            event_id: event.id,
+            event_name: event.name,
+            start_valid: !isNaN(event_start.getTime()),
+            end_valid: !isNaN(event_end.getTime()),
+          })
+        }
+        return false
+      }
+      
+      const starts_on_day = isSameDay(event_start, date)
+      const ends_on_day = isSameDay(event_end, date)
+      const spans_day = event_start <= date && event_end >= date
+      
+      const matches = starts_on_day || ends_on_day || spans_day
+      
+      if (import.meta.env.DEV && matches) {
+        console.log('[Calendar] calendar_days: Event assigned to day', {
+          event_id: event.id,
+          event_name: event.name,
+          day: format(date, 'yyyy-MM-dd'),
+          event_start: event_start.toISOString(),
+          event_end: event_end.toISOString(),
+          reason: starts_on_day ? 'starts on day' : ends_on_day ? 'ends on day' : 'spans day',
+        })
+      }
+      
+      return matches
     })
 
     return {
@@ -168,6 +280,19 @@ const calendar_days = computed((): CalendarDay[] => {
       events: day_events,
     }
   })
+
+  if (import.meta.env.DEV) {
+    const total_events_assigned = calendar_days_result.reduce((sum, day) => sum + day.events.length, 0)
+    const days_with_events = calendar_days_result.filter((day) => day.events.length > 0).length
+    console.log('[Calendar] calendar_days: Calendar days computed', {
+      total_days: calendar_days_result.length,
+      days_with_events,
+      total_events_assigned,
+      events_in_month: filtered_by_month.value.length,
+    })
+  }
+
+  return calendar_days_result
 })
 
 const format_event_time = (event: YesPlanEvent): string => {

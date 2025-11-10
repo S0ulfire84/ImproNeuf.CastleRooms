@@ -105,20 +105,46 @@ const filtered_events = computed(() => {
   if (!selected_booker.value) {
     return []
   }
-  // Use the filter utility that requires event_contacts_map
-  return filter_events_by_booker(events.value, selected_booker.value, event_contacts_map.value)
+
+  // If contacts haven't been loaded yet, show all events
+  // This allows events to display immediately while contacts load in background
+  if (Object.keys(event_contacts_map.value).length === 0 && events.value.length > 0) {
+    if (import.meta.env.DEV) {
+      console.log('[App] filtered_events: Showing all events (contacts not loaded yet)', {
+        event_count: events.value.length,
+        selected_booker: selected_booker.value,
+      })
+    }
+    return events.value
+  }
+
+  // Once contacts are loaded, filter by booker
+  const filtered = filter_events_by_booker(
+    events.value,
+    selected_booker.value,
+    event_contacts_map.value,
+  )
+  if (import.meta.env.DEV) {
+    console.log('[App] filtered_events: Filtered by booker', {
+      total_events: events.value.length,
+      filtered_count: filtered.length,
+      selected_booker: selected_booker.value,
+      contact_map_size: Object.keys(event_contacts_map.value).length,
+    })
+  }
+  return filtered
 })
 
-// Calculate date range for fetching events (current month ± 2 months)
+// Calculate date range for fetching events (current month only)
 const get_date_range = (date: Date) => {
   const month = date.getMonth()
   const year = date.getFullYear()
 
-  // Start: 2 months before current month
-  const start_date = new Date(year, month - 2, 1)
+  // Start: First day of current month
+  const start_date = new Date(year, month, 1)
 
-  // End: 2 months after current month (last day of that month)
-  const end_date = new Date(year, month + 3, 0, 23, 59, 59, 999)
+  // End: Last day of current month
+  const end_date = new Date(year, month + 1, 0, 23, 59, 59, 999)
 
   return { start_date, end_date }
 }
@@ -128,10 +154,25 @@ const fetch_data = async () => {
   loading.value = true
   error.value = null
 
+  if (import.meta.env.DEV) {
+    console.log('[App] fetch_data: Starting data fetch', {
+      calendar_date: calendar_date.value.toISOString(),
+      selected_booker: selected_booker.value,
+    })
+  }
+
   try {
     const { start_date, end_date } = get_date_range(calendar_date.value)
     const start_str = start_date.toISOString().split('T')[0]
     const end_str = end_date.toISOString().split('T')[0]
+
+    if (import.meta.env.DEV) {
+      console.log('[App] fetch_data: Date range calculated', {
+        start_date: start_str,
+        end_date: end_str,
+        current_month: calendar_date.value.toISOString().split('T')[0],
+      })
+    }
 
     // Check if we already have events for this date range
     if (
@@ -142,11 +183,43 @@ const fetch_data = async () => {
       // Use cached events
       events.value = events_cache.value.events
       if (import.meta.env.DEV) {
-        console.log(`[App] Using cached events for date range ${start_str} to ${end_str}`)
+        console.log('[App] fetch_data: Using cached events', {
+          date_range: `${start_str} to ${end_str}`,
+          cached_event_count: events_cache.value.events.length,
+        })
       }
     } else {
       // Fetch events for the date range (limit to 5 pages to avoid rate limiting)
+      if (import.meta.env.DEV) {
+        console.log('[App] fetch_data: Fetching events from API', {
+          date_range: `${start_str} to ${end_str}`,
+          max_pages: 5,
+        })
+      }
+
       const fetched_events = await api_service.fetchEvents(start_date, end_date, 5)
+
+      if (import.meta.env.DEV) {
+        console.log('[App] fetch_data: Events fetched from API', {
+          event_count: fetched_events.length,
+          date_range: `${start_str} to ${end_str}`,
+          sample_event_ids: fetched_events.slice(0, 5).map((e) => e.id),
+        })
+
+        // Log all events with their details
+        console.log(
+          '[App] fetch_data: All fetched events',
+          fetched_events.map((e) => ({
+            id: e.id,
+            name: e.name,
+            start: e.start.toISOString(),
+            end: e.end.toISOString(),
+            status: e.status,
+            owner: e.owner,
+          })),
+        )
+      }
+
       events.value = fetched_events
 
       // Cache the events (ensure strings are defined)
@@ -156,14 +229,69 @@ const fetch_data = async () => {
           end_date: end_str,
           events: fetched_events,
         }
+
+        if (import.meta.env.DEV) {
+          console.log('[App] fetch_data: Events cached', {
+            date_range: `${start_str} to ${end_str}`,
+            cached_event_count: fetched_events.length,
+          })
+        }
       }
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('[App] fetch_data: Events before filtering', {
+        total_events: events.value.length,
+        selected_booker: selected_booker.value,
+        contact_map_size: Object.keys(event_contacts_map.value).length,
+      })
+
+      // Log all events with owner information
+      console.log(
+        '[App] fetch_data: Events with owner information',
+        events.value.map((e) => ({
+          id: e.id,
+          name: e.name,
+          owner: e.owner,
+          start: e.start.toISOString(),
+          end: e.end.toISOString(),
+        })),
+      )
     }
 
     // Fetch contacts for visible events after events are loaded
     if (selected_booker.value) {
       await fetch_contacts_for_visible_events()
     }
+
+    if (import.meta.env.DEV) {
+      console.log('[App] fetch_data: Data fetch complete', {
+        total_events: events.value.length,
+        filtered_events_count: filtered_events.value.length,
+        selected_booker: selected_booker.value,
+        contact_map_size: Object.keys(event_contacts_map.value).length,
+      })
+
+      // Log filtered events that will be passed to calendar
+      console.log(
+        '[App] fetch_data: Filtered events passed to calendar',
+        filtered_events.value.map((e) => ({
+          id: e.id,
+          name: e.name,
+          owner: e.owner,
+          start: e.start.toISOString(),
+          end: e.end.toISOString(),
+          contacts: event_contacts_map.value[e.id] || [],
+        })),
+      )
+    }
   } catch (err) {
+    if (import.meta.env.DEV) {
+      console.error('[App] fetch_data: Error fetching data', {
+        error: err instanceof Error ? err.message : String(err),
+        calendar_date: calendar_date.value.toISOString(),
+      })
+    }
     error.value = err instanceof Error ? err.message : 'Failed to fetch data'
     events.value = []
   } finally {
