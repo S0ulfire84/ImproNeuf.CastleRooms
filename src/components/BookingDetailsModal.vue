@@ -148,15 +148,15 @@ const fetch_event_details = async () => {
   error.value = null
 
   try {
-    const [details, resources, contacts_data] = await Promise.all([
+    const [details, resources] = await Promise.all([
       api_service_instance.fetchEventDetails(props.event_id),
       api_service_instance.fetchEventResources(props.event_id),
-      api_service_instance.fetchEventContacts(props.event_id),
+      // Note: Contacts API call removed - events don't have a "contacts" property
     ])
 
     event_details.value = details
     rooms.value = resources
-    contacts.value = contacts_data
+    contacts.value = [] // Contacts not available via API
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch event details'
     event_details.value = null

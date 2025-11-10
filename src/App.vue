@@ -14,11 +14,9 @@ const selected_event_id = ref<string | null>(null)
 const calendar_date = ref<Date>(new Date())
 const loading = ref(false)
 const error = ref<string | null>(null)
+// Note: event_contacts_map kept for compatibility with filter function
+// Filtering now relies on the "owner" field from events
 const event_contacts_map = ref<Record<string, YesPlanContact[]>>({})
-const loading_contacts = ref(false)
-
-// Cache for event contacts - tracks which events we've already fetched
-const event_contacts_cache = ref<Record<string, YesPlanContact[]>>({})
 
 // Cache for events by date range - avoid refetching the same date ranges
 const events_cache = ref<{
@@ -27,78 +25,8 @@ const events_cache = ref<{
   events: YesPlanEvent[]
 } | null>(null)
 
-// Fetch event contacts for events visible in the current month (lazy loading)
-const fetch_contacts_for_visible_events = async () => {
-  if (events.value.length === 0 || !selected_booker.value) {
-    return
-  }
-
-  loading_contacts.value = true
-
-  try {
-    // Calculate month boundaries
-    const month_start = new Date(
-      calendar_date.value.getFullYear(),
-      calendar_date.value.getMonth(),
-      1,
-    )
-    const month_end = new Date(
-      calendar_date.value.getFullYear(),
-      calendar_date.value.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-    )
-
-    // Find events that are visible in this month
-    const visible_events = events.value.filter((event) => {
-      const event_start = new Date(event.start)
-      const event_end = new Date(event.end)
-      return (
-        (event_start >= month_start && event_start <= month_end) ||
-        (event_end >= month_start && event_end <= month_end) ||
-        (event_start <= month_start && event_end >= month_end)
-      )
-    })
-
-    // Filter out events we've already fetched
-    const uncached_events = visible_events.filter(
-      (event) => !(event.id in event_contacts_cache.value),
-    )
-
-    if (uncached_events.length === 0) {
-      // Update map with cached data
-      event_contacts_map.value = { ...event_contacts_cache.value }
-      return
-    }
-
-    // Fetch contacts for uncached events in batches
-    const batch_size = 5
-    for (let i = 0; i < uncached_events.length; i += batch_size) {
-      const batch = uncached_events.slice(i, i + batch_size)
-
-      await Promise.all(
-        batch.map(async (event) => {
-          try {
-            const contacts = await api_service.fetchEventContacts(event.id)
-            event_contacts_cache.value[event.id] = contacts
-          } catch {
-            // If fetching fails, event has no contacts
-            event_contacts_cache.value[event.id] = []
-          }
-        }),
-      )
-    }
-
-    // Update the event_contacts_map with all cached data
-    event_contacts_map.value = { ...event_contacts_cache.value }
-  } catch (err) {
-    console.error('Error fetching event contacts:', err)
-  } finally {
-    loading_contacts.value = false
-  }
-}
+// Note: Contacts API call removed - events don't have a "contacts" property.
+// Filtering now relies on the "owner" field from events.
 
 // Filtered events based on selected booker
 const filtered_events = computed(() => {
@@ -106,19 +34,7 @@ const filtered_events = computed(() => {
     return []
   }
 
-  // If contacts haven't been loaded yet, show all events
-  // This allows events to display immediately while contacts load in background
-  if (Object.keys(event_contacts_map.value).length === 0 && events.value.length > 0) {
-    if (import.meta.env.DEV) {
-      console.log('[App] filtered_events: Showing all events (contacts not loaded yet)', {
-        event_count: events.value.length,
-        selected_booker: selected_booker.value,
-      })
-    }
-    return events.value
-  }
-
-  // Once contacts are loaded, filter by booker
+  // Filter by booker using owner field (contacts API not available)
   const filtered = filter_events_by_booker(
     events.value,
     selected_booker.value,
@@ -259,10 +175,7 @@ const fetch_data = async () => {
       )
     }
 
-    // Fetch contacts for visible events after events are loaded
-    if (selected_booker.value) {
-      await fetch_contacts_for_visible_events()
-    }
+    // Note: Contacts API call removed - filtering uses owner field
 
     if (import.meta.env.DEV) {
       console.log('[App] fetch_data: Data fetch complete', {
@@ -299,13 +212,11 @@ const fetch_data = async () => {
   }
 }
 
-// Watch for booker selection changes - fetch contacts for visible events when booker changes
+// Watch for booker selection changes - filtering uses owner field (no API call needed)
 watch(
   selected_booker,
   async () => {
-    if (events.value.length > 0) {
-      await fetch_contacts_for_visible_events()
-    }
+    // Filtering happens automatically via computed property
   },
   { immediate: false },
 )
@@ -324,9 +235,8 @@ watch(calendar_date, async () => {
   ) {
     // Date range changed, fetch new events
     await fetch_data()
-  } else if (selected_booker.value && events.value.length > 0) {
-    // Same date range, just fetch contacts for visible events
-    await fetch_contacts_for_visible_events()
+  } else {
+    // Same date range, filtering happens automatically via computed property
   }
 })
 
