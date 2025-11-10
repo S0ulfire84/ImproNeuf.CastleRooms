@@ -67,13 +67,53 @@ export class YesPlanApiService {
 
   /**
    * Extract endpoint path without query parameters for rate limiting
+   * Normalizes dynamic IDs (like event IDs, contact IDs) to {id} placeholder
+   * so that /event/123/contacts and /event/456/contacts are treated as the same endpoint
    */
   private extractEndpointPath(endpoint: string): string {
     // Remove query parameters if present
     const path = endpoint.split('?')[0]
+    
     // Normalize path: ensure it starts with / and remove trailing slashes
-    const normalized = path.replace(/\/+$/, '') || '/'
-    return normalized.startsWith('/') ? normalized : `/${normalized}`
+    let normalized = path.replace(/\/+$/, '') || '/'
+    if (!normalized.startsWith('/')) {
+      normalized = `/${normalized}`
+    }
+    
+    // Normalize dynamic IDs to {id} placeholder
+    // Known endpoint keywords that should not be replaced
+    const endpoint_keywords = new Set([
+      'events', 'event', 'resources', 'resource', 
+      'contacts', 'contact', 'locations', 'location'
+    ])
+    
+    // Split path into segments
+    const segments = normalized.split('/').filter(segment => segment.length > 0)
+    const normalized_segments: string[] = []
+    
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i]
+      
+      // Check if this segment should be normalized to {id}
+      // It should be normalized if:
+      // 1. It's not a known endpoint keyword, AND
+      // 2. It comes after a singular resource name (event, contact, resource, location)
+      const prev_segment = i > 0 ? segments[i - 1] : null
+      const is_after_singular_resource = prev_segment && 
+        ['event', 'contact', 'resource', 'location'].includes(prev_segment)
+      
+      if (is_after_singular_resource && !endpoint_keywords.has(segment)) {
+        // This looks like an ID - replace with placeholder
+        normalized_segments.push('{id}')
+      } else {
+        // Keep the segment as-is
+        normalized_segments.push(segment)
+      }
+    }
+    
+    // Reconstruct the normalized path
+    const normalized_path = '/' + normalized_segments.join('/')
+    return normalized_path
   }
 
   /**
