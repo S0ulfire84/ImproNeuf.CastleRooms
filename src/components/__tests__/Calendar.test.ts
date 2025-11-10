@@ -824,5 +824,130 @@ describe('Calendar Component', () => {
       expect(formatted_time).toMatch(/\d{2}:\d{2} - \d{2}:\d{2}/)
     })
   })
+
+  describe('Event Color Hashing', () => {
+    const mock_events: YesPlanEvent[] = [
+      {
+        id: 'event-1',
+        name: 'Test Event',
+        start: new Date('2024-01-15T10:00:00Z'),
+        end: new Date('2024-01-15T12:00:00Z'),
+        status: 'confirmed',
+      },
+      {
+        id: 'event-2',
+        name: 'Another Event',
+        start: new Date('2024-01-15T14:00:00Z'),
+        end: new Date('2024-01-15T16:00:00Z'),
+        status: 'confirmed',
+      },
+    ]
+
+    it('should apply dynamic background color to event items', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      const event_element = wrapper.find('[data-event-id="event-1"]')
+      expect(event_element.exists()).toBe(true)
+
+      // Check that the element has a style attribute with background-color
+      const style = event_element.attributes('style')
+      expect(style).toBeDefined()
+      expect(style).toContain('background-color')
+    })
+
+    it('should assign the same color to events with the same name', async () => {
+      const same_name_events: YesPlanEvent[] = [
+        {
+          id: 'event-1',
+          name: 'Same Event',
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T12:00:00Z'),
+          status: 'confirmed',
+        },
+        {
+          id: 'event-2',
+          name: 'Same Event',
+          start: new Date('2024-01-16T10:00:00Z'),
+          end: new Date('2024-01-16T12:00:00Z'),
+          status: 'confirmed',
+        },
+      ]
+
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: same_name_events,
+      })
+      await wrapper.vm.$nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      const event1 = wrapper.find('[data-event-id="event-1"]')
+      const event2 = wrapper.find('[data-event-id="event-2"]')
+
+      const style1 = event1.attributes('style')
+      const style2 = event2.attributes('style')
+
+      // Extract background-color values
+      const bgColor1 = style1?.match(/background-color:\s*([^;]+)/)?.[1]
+      const bgColor2 = style2?.match(/background-color:\s*([^;]+)/)?.[1]
+
+      expect(bgColor1).toBe(bgColor2)
+    })
+
+    it('should assign different colors to events with different names', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      const event1 = wrapper.find('[data-event-id="event-1"]')
+      const event2 = wrapper.find('[data-event-id="event-2"]')
+
+      const style1 = event1.attributes('style')
+      const style2 = event2.attributes('style')
+
+      // Extract background-color values
+      const bgColor1 = style1?.match(/background-color:\s*([^;]+)/)?.[1]
+      const bgColor2 = style2?.match(/background-color:\s*([^;]+)/)?.[1]
+
+      expect(bgColor1).not.toBe(bgColor2)
+    })
+
+    it('should have getEventColor method that returns consistent colors', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const color1 = wrapper.vm.getEventColor(mock_events[0])
+      const color2 = wrapper.vm.getEventColor(mock_events[0])
+
+      // Same event should return same color
+      expect(color1).toBe(color2)
+      expect(color1).toMatch(/^#[0-9a-f]{6}$/i)
+    })
+
+    it('should return different colors for different event names', async () => {
+      const wrapper = create_wrapper({
+        current_date: new Date('2024-01-01'),
+        filtered_events: mock_events,
+      })
+      await wrapper.vm.$nextTick()
+
+      const color1 = wrapper.vm.getEventColor(mock_events[0])
+      const color2 = wrapper.vm.getEventColor(mock_events[1])
+
+      expect(color1).not.toBe(color2)
+      expect(color1).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(color2).toMatch(/^#[0-9a-f]{6}$/i)
+    })
+  })
 })
 

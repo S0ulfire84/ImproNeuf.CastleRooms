@@ -32,6 +32,10 @@
               :key="event.id"
               class="event-item"
               :data-event-id="event.id"
+              :style="{
+                backgroundColor: getEventColor(event),
+                '--hover-color': getEventHoverColor(event),
+              }"
               @click="select_event(event.id)"
             >
               <span class="event-name">{{ event.name }}</span>
@@ -62,6 +66,7 @@ import {
   getDay,
 } from 'date-fns'
 import type { YesPlanEvent } from '../services/yesplan-api'
+import { hashNameToColor, darkenColor } from '../utils/colorUtils'
 
 const props = defineProps<{
   current_date?: Date
@@ -341,6 +346,15 @@ const select_event = (event_id: string) => {
   emit('event-selected', event_id)
 }
 
+const getEventColor = (event: YesPlanEvent): string => {
+  return hashNameToColor(event.name)
+}
+
+const getEventHoverColor = (event: YesPlanEvent): string => {
+  const baseColor = getEventColor(event)
+  return darkenColor(baseColor, 0.15)
+}
+
 // Note: Calendar component does not fetch events - it receives them via props
 // This ensures we only make API calls once from App.vue
 </script>
@@ -480,7 +494,6 @@ const select_event = (event_id: string) => {
 }
 
 .event-item {
-  background-color: #2196f3;
   color: white;
   padding: 0.25rem 0.5rem;
   border-radius: 3px;
@@ -496,7 +509,7 @@ const select_event = (event_id: string) => {
 }
 
 .event-item:hover {
-  background-color: #1976d2;
+  background-color: var(--hover-color) !important;
 }
 
 .event-name {
