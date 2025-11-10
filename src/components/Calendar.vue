@@ -1,30 +1,14 @@
 <template>
   <div class="calendar">
     <div class="calendar-header">
-      <button
-        class="nav-button prev"
-        aria-label="Previous month"
-        @click="go_to_previous_month"
-      >
+      <button class="nav-button prev" aria-label="Previous month" @click="go_to_previous_month">
         ‹
       </button>
       <div class="month-year">
         <span>{{ formatted_month_year }}</span>
-        <button
-          class="today-button"
-          aria-label="Today"
-          @click="go_to_today"
-        >
-          Today
-        </button>
+        <button class="today-button" aria-label="Today" @click="go_to_today">Today</button>
       </div>
-      <button
-        class="nav-button next"
-        aria-label="Next month"
-        @click="go_to_next_month"
-      >
-        ›
-      </button>
+      <button class="nav-button next" aria-label="Next month" @click="go_to_next_month">›</button>
     </div>
 
     <div class="calendar-grid">
@@ -38,7 +22,7 @@
           v-for="day in calendar_days"
           :key="day.date.toISOString()"
           class="calendar-day"
-          :class="{ 'today': day.is_today, 'other-month': day.is_other_month }"
+          :class="{ today: day.is_today, 'other-month': day.is_other_month }"
           :data-date="day.date.toISOString().split('T')[0]"
         >
           <span class="day-number">{{ day.day_number }}</span>
@@ -63,7 +47,20 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameMonth, isToday, isSameDay, addMonths, subMonths } from 'date-fns'
+import {
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  format,
+  isSameMonth,
+  isToday,
+  isSameDay,
+  addMonths,
+  subMonths,
+  getDay,
+} from 'date-fns'
 import type { YesPlanEvent } from '../services/yesplan-api'
 
 const props = defineProps<{
@@ -86,14 +83,14 @@ watch(
     if (new_date) {
       current_date.value = new_date
     }
-  }
+  },
 )
 
 // Use filtered_events prop - events are always provided from App.vue
 // This ensures we only make one API call to fetch all events
 const displayed_events = computed(() => {
   const events = props.filtered_events || []
-  
+
   if (import.meta.env.DEV) {
     console.log('[Calendar] displayed_events: Events received from App', {
       event_count: events.length,
@@ -106,7 +103,7 @@ const displayed_events = computed(() => {
       })),
     })
   }
-  
+
   return events
 })
 
@@ -122,7 +119,7 @@ const filtered_by_month = computed(() => {
 
   const month_start = startOfMonth(current_date.value)
   const month_end = endOfMonth(current_date.value)
-  
+
   if (import.meta.env.DEV) {
     console.log('[Calendar] filtered_by_month: Filtering events', {
       total_events: events_to_filter.length,
@@ -131,11 +128,11 @@ const filtered_by_month = computed(() => {
       month_end: month_end.toISOString(),
     })
   }
-  
+
   const filtered = events_to_filter.filter((event) => {
     const event_start = new Date(event.start)
     const event_end = new Date(event.end)
-    
+
     // Validate dates
     if (isNaN(event_start.getTime()) || isNaN(event_end.getTime())) {
       if (import.meta.env.DEV) {
@@ -148,7 +145,7 @@ const filtered_by_month = computed(() => {
       }
       return false
     }
-    
+
     // Event overlaps with month if:
     // - Event starts within the month, OR
     // - Event ends within the month, OR
@@ -156,9 +153,9 @@ const filtered_by_month = computed(() => {
     const starts_in_month = event_start >= month_start && event_start <= month_end
     const ends_in_month = event_end >= month_start && event_end <= month_end
     const spans_month = event_start <= month_start && event_end >= month_end
-    
+
     const overlaps = starts_in_month || ends_in_month || spans_month
-    
+
     if (import.meta.env.DEV) {
       if (!overlaps) {
         console.log('[Calendar] filtered_by_month: Event excluded', {
@@ -168,7 +165,10 @@ const filtered_by_month = computed(() => {
           event_end: event_end.toISOString(),
           month_start: month_start.toISOString(),
           month_end: month_end.toISOString(),
-          reason: !starts_in_month && !ends_in_month && !spans_month ? 'completely outside month' : 'unknown',
+          reason:
+            !starts_in_month && !ends_in_month && !spans_month
+              ? 'completely outside month'
+              : 'unknown',
         })
       } else {
         console.log('[Calendar] filtered_by_month: Event included', {
@@ -176,14 +176,18 @@ const filtered_by_month = computed(() => {
           event_name: event.name,
           event_start: event_start.toISOString(),
           event_end: event_end.toISOString(),
-          reason: starts_in_month ? 'starts in month' : ends_in_month ? 'ends in month' : 'spans month',
+          reason: starts_in_month
+            ? 'starts in month'
+            : ends_in_month
+              ? 'ends in month'
+              : 'spans month',
         })
       }
     }
-    
+
     return overlaps
   })
-  
+
   if (import.meta.env.DEV) {
     console.log('[Calendar] filtered_by_month: Filtering complete', {
       total_events: events_to_filter.length,
@@ -191,11 +195,11 @@ const filtered_by_month = computed(() => {
       excluded_count: events_to_filter.length - filtered.length,
     })
   }
-  
+
   return filtered
 })
 
-const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const current_month = computed(() => current_date.value.getMonth())
 const current_year = computed(() => current_date.value.getFullYear())
@@ -215,8 +219,8 @@ interface CalendarDay {
 const calendar_days = computed((): CalendarDay[] => {
   const month_start = startOfMonth(current_date.value)
   const month_end = endOfMonth(current_date.value)
-  const calendar_start = startOfWeek(month_start, { weekStartsOn: 0 })
-  const calendar_end = endOfWeek(month_end, { weekStartsOn: 0 })
+  const calendar_start = startOfWeek(month_start, { weekStartsOn: 1 })
+  const calendar_end = endOfWeek(month_end, { weekStartsOn: 1 })
 
   if (import.meta.env.DEV) {
     console.log('[Calendar] calendar_days: Computing calendar days', {
@@ -234,11 +238,25 @@ const calendar_days = computed((): CalendarDay[] => {
     end: calendar_end,
   })
 
+  // Verify the first day is Monday (1 = Monday in date-fns, 0 = Sunday)
+  // If not, there might be an issue with the week calculation
+  if (days_in_range.length > 0) {
+    const first_day = days_in_range[0]
+    if (first_day && getDay(first_day) !== 1) {
+      if (import.meta.env.DEV) {
+        console.warn('[Calendar] calendar_days: First day is not Monday!', {
+          first_day: format(first_day, 'EEEE'),
+          day_of_week: getDay(first_day),
+        })
+      }
+    }
+  }
+
   const calendar_days_result = days_in_range.map((date) => {
     const day_events = filtered_by_month.value.filter((event) => {
       const event_start = new Date(event.start)
       const event_end = new Date(event.end)
-      
+
       // Validate dates
       if (isNaN(event_start.getTime()) || isNaN(event_end.getTime())) {
         if (import.meta.env.DEV) {
@@ -251,13 +269,13 @@ const calendar_days = computed((): CalendarDay[] => {
         }
         return false
       }
-      
+
       const starts_on_day = isSameDay(event_start, date)
       const ends_on_day = isSameDay(event_end, date)
       const spans_day = event_start <= date && event_end >= date
-      
+
       const matches = starts_on_day || ends_on_day || spans_day
-      
+
       if (import.meta.env.DEV && matches) {
         console.log('[Calendar] calendar_days: Event assigned to day', {
           event_id: event.id,
@@ -268,7 +286,7 @@ const calendar_days = computed((): CalendarDay[] => {
           reason: starts_on_day ? 'starts on day' : ends_on_day ? 'ends on day' : 'spans day',
         })
       }
-      
+
       return matches
     })
 
@@ -282,7 +300,10 @@ const calendar_days = computed((): CalendarDay[] => {
   })
 
   if (import.meta.env.DEV) {
-    const total_events_assigned = calendar_days_result.reduce((sum, day) => sum + day.events.length, 0)
+    const total_events_assigned = calendar_days_result.reduce(
+      (sum, day) => sum + day.events.length,
+      0,
+    )
     const days_with_events = calendar_days_result.filter((day) => day.events.length > 0).length
     console.log('[Calendar] calendar_days: Calendar days computed', {
       total_days: calendar_days_result.length,
@@ -406,7 +427,7 @@ const select_event = (event_id: string) => {
 
 .calendar-weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background-color: #e0e0e0;
 }
@@ -417,11 +438,12 @@ const select_event = (event_id: string) => {
   text-align: center;
   font-weight: bold;
   font-size: 0.9rem;
+  min-width: 0;
 }
 
 .calendar-days {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background-color: #e0e0e0;
 }
@@ -432,6 +454,7 @@ const select_event = (event_id: string) => {
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .calendar-day.other-month {
@@ -535,4 +558,3 @@ const select_event = (event_id: string) => {
   }
 }
 </style>
-
