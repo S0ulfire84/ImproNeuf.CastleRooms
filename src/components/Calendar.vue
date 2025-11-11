@@ -515,8 +515,6 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
   cursor: pointer;
   font-size: 0.75rem;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-height: 44px;
   display: flex;
   flex-direction: column;
@@ -530,19 +528,23 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
 .event-name {
   display: block;
   font-weight: 500;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.2;
+  margin-bottom: 0.25rem;
 }
 
 .event-time {
   display: block;
   font-size: 0.7rem;
   opacity: 0.9;
+  margin-bottom: 0.2rem;
 }
 
 .event-location {
   display: block;
   font-size: 0.65rem;
   opacity: 0.85;
-  margin-top: 0.1rem;
   font-style: italic;
 }
 
