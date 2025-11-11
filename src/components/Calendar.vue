@@ -40,6 +40,9 @@
             >
               <span class="event-name">{{ event.name }}</span>
               <span class="event-time">{{ format_event_time(event) }}</span>
+              <span v-if="get_event_location(event)" class="event-location">{{
+                get_event_location(event)
+              }}</span>
             </div>
           </div>
         </div>
@@ -327,6 +330,18 @@ const format_event_time = (event: YesPlanEvent): string => {
   return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
 }
 
+const get_event_location = (event: YesPlanEvent): string | null => {
+  // Check if event has locations array (from raw API response)
+  const locations = (event as Record<string, unknown>).locations
+  if (Array.isArray(locations) && locations.length > 0) {
+    const first_location = locations[0] as Record<string, unknown>
+    if (first_location && typeof first_location.name === 'string') {
+      return first_location.name
+    }
+  }
+  return null
+}
+
 const go_to_previous_month = () => {
   current_date.value = subMonths(current_date.value, 1)
   emit('month-changed', current_date.value)
@@ -521,6 +536,14 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
   display: block;
   font-size: 0.7rem;
   opacity: 0.9;
+}
+
+.event-location {
+  display: block;
+  font-size: 0.65rem;
+  opacity: 0.85;
+  margin-top: 0.1rem;
+  font-style: italic;
 }
 
 /* Responsive Calendar */
