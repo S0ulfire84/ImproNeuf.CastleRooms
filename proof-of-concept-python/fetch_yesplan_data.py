@@ -8,12 +8,16 @@ It fetches various types of data including events, resources, and contacts.
 
 import requests
 import json
+import os
 from typing import Optional, Dict, Any
 
 
 # YesPlan API Configuration
 YESPLAN_BASE_URL = "https://neuf.yesplan.be"
-API_KEY = "${YESPLAN_API_KEY}"
+# API key should be set via environment variable: YESPLAN_API_KEY
+API_KEY = os.getenv('YESPLAN_API_KEY')
+if not API_KEY:
+    raise ValueError('YESPLAN_API_KEY environment variable is required')
 
 
 def fetch_yesplan_data(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -100,7 +104,7 @@ def main():
     print("YesPlan API Proof of Concept")
     print("=" * 60)
     print(f"Base URL: {YESPLAN_BASE_URL}")
-    print(f"API Key: {API_KEY[:8]}...{API_KEY[-8:]}")
+    print(f"API Key: {'*' * 8}...{'*' * 8} (hidden)")
     print("=" * 60)
     
     # List of endpoints to try

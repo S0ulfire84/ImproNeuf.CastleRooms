@@ -6,8 +6,11 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { YesPlanApiService } from '../yesplan-api'
 
-// Use real API key from environment or fallback to test key
-const TEST_API_KEY = import.meta.env.VITE_YESPLAN_API_KEY || 'process.env.VITE_YESPLAN_API_KEY'
+// Use real API key from environment (required for integration tests)
+const TEST_API_KEY = import.meta.env.VITE_YESPLAN_API_KEY
+if (!TEST_API_KEY) {
+  throw new Error('VITE_YESPLAN_API_KEY environment variable is required for integration tests')
+}
 
 describe('YesPlan API Integration Test', () => {
   beforeAll(() => {
