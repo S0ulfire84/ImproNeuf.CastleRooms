@@ -1,18 +1,8 @@
 <template>
   <Teleport to="body">
-    <div
-      v-if="event_id"
-      class="modal-overlay"
-      @click.self="handle_close"
-    >
+    <div v-if="event_id" class="modal-overlay" @click.self="handle_close">
       <div class="modal-content">
-        <button
-          class="modal-close"
-          aria-label="Close"
-          @click="handle_close"
-        >
-          ×
-        </button>
+        <button class="modal-close" aria-label="Close" @click="handle_close">×</button>
 
         <div v-if="loading" class="loading">Loading event details...</div>
         <div v-else-if="error" class="error">{{ error }}</div>
@@ -44,13 +34,20 @@
             </div>
           </div>
 
-          <div v-if="rooms.length > 0" class="detail-section">
-            <h3>Rooms</h3>
-            <ul class="detail-list">
-              <li v-for="room in rooms" :key="room.id" class="detail-list-item">
-                {{ room.name }}
-              </li>
-            </ul>
+          <div class="detail-section">
+            <h3>Room</h3>
+            <div v-if="rooms.length > 0">
+              <ul class="detail-list">
+                <li v-for="room in rooms" :key="room.id" class="detail-list-item">
+                  {{ room.name }}
+                </li>
+              </ul>
+            </div>
+            <div v-else class="detail-item">
+              <span class="detail-value" style="color: #999; font-style: italic">
+                No room information available
+              </span>
+            </div>
           </div>
 
           <div v-if="contacts.length > 0" class="detail-section">
@@ -148,14 +145,30 @@ const fetch_event_details = async () => {
   error.value = null
 
   try {
-    const [details, resources] = await Promise.all([
-      api_service_instance.fetchEventDetails(props.event_id),
-      api_service_instance.fetchEventResources(props.event_id),
-      // Note: Contacts API call removed - events don't have a "contacts" property
-    ])
+    // First, try to get event details with embedded resources
+    const { event, resources: embedded_resources } =
+      await api_service_instance.fetchEventDetailsWithResources(props.event_id)
 
-    event_details.value = details
-    rooms.value = resources
+    event_details.value = event
+
+    // If resources were found in the event details, use them
+    // Otherwise, try the separate endpoint as fallback
+    if (embedded_resources.length > 0) {
+      rooms.value = embedded_resources
+    } else {
+      // Try the separate resources endpoint as fallback
+      try {
+        const separate_resources = await api_service_instance.fetchEventResources(props.event_id)
+        rooms.value = separate_resources
+      } catch (resource_err) {
+        // If the resources endpoint doesn't exist, that's okay - just use empty array
+        if (import.meta.env.DEV) {
+          console.warn('[BookingDetailsModal] Could not fetch resources:', resource_err)
+        }
+        rooms.value = []
+      }
+    }
+
     contacts.value = [] // Contacts not available via API
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch event details'
@@ -172,7 +185,7 @@ watch(
   () => {
     fetch_event_details()
   },
-  { immediate: true }
+  { immediate: true },
 )
 </script>
 
@@ -361,4 +374,3 @@ watch(
   color: #333;
 }
 </style>
-

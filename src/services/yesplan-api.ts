@@ -28,6 +28,14 @@ export interface YesPlanResource {
   [key: string]: unknown
 }
 
+export interface YesPlanLocation {
+  id: string
+  name: string
+  url?: string
+  _type?: string
+  [key: string]: unknown
+}
+
 export interface YesPlanContact {
   id: string
   name: string
@@ -512,11 +520,106 @@ export class YesPlanApiService {
   }
 
   /**
+   * Normalize location data structure
+   */
+  normalizeLocation(raw_location: Record<string, unknown>): YesPlanLocation {
+    return {
+      id: String(raw_location.id || ''),
+      name: String(raw_location.name || ''),
+      url: raw_location.url ? String(raw_location.url) : undefined,
+      _type: raw_location._type ? String(raw_location._type) : undefined,
+      ...raw_location,
+    }
+  }
+
+  /**
+   * Fetch event details and extract embedded resources/locations if available
+   * Returns both the event and any resources/locations found in the response
+   * Note: YesPlan API returns "locations" which represent the physical rooms/spaces
+   */
+  async fetchEventDetailsWithResources(event_id: string): Promise<{
+    event: YesPlanEvent
+    resources: YesPlanResource[]
+  }> {
+    const response = await this.request<Record<string, unknown>>(`/event/${event_id}`)
+    
+    // Extract resources/locations from the response if they're embedded
+    // Check multiple possible locations and formats
+    let resources: YesPlanResource[] = []
+    
+    // First, check for 'locations' array (this is what YesPlan API actually returns for rooms)
+    if ('locations' in response && Array.isArray(response.locations)) {
+      resources = (response.locations as unknown[]).map((location: unknown) => {
+        const location_obj = location as Record<string, unknown>
+        // Convert location to resource format for display
+        return {
+          id: String(location_obj.id || ''),
+          name: String(location_obj.name || ''),
+          description: undefined,
+          ...location_obj,
+        } as YesPlanResource
+      })
+    }
+    // Check for 'resources' array (fallback)
+    else if ('resources' in response && Array.isArray(response.resources)) {
+      resources = (response.resources as unknown[]).map((resource: unknown) =>
+        this.normalizeResource(resource as Record<string, unknown>)
+      )
+    }
+    // Check for 'resource' (singular) array
+    else if ('resource' in response && Array.isArray(response.resource)) {
+      resources = (response.resource as unknown[]).map((resource: unknown) =>
+        this.normalizeResource(resource as Record<string, unknown>)
+      )
+    }
+    // Check for nested 'data.resources' structure
+    else if ('data' in response && typeof response.data === 'object' && response.data !== null) {
+      const data = response.data as Record<string, unknown>
+      if ('resources' in data && Array.isArray(data.resources)) {
+        resources = (data.resources as unknown[]).map((resource: unknown) =>
+          this.normalizeResource(resource as Record<string, unknown>)
+        )
+      }
+    }
+    
+    // Log what we found for debugging
+    if (import.meta.env.DEV) {
+      console.log('[YesPlanApiService] fetchEventDetailsWithResources: Resource/Location extraction', {
+        event_id,
+        found_resources: resources.length,
+        has_locations_field: 'locations' in response,
+        has_resources_field: 'resources' in response,
+        has_resource_field: 'resource' in response,
+        locations_count: ('locations' in response && Array.isArray(response.locations)) 
+          ? (response.locations as unknown[]).length 
+          : 0,
+        response_keys: Object.keys(response),
+      })
+    }
+    
+    const event = this.normalizeEvent(response)
+    
+    return { event, resources }
+  }
+
+  /**
    * Fetch resources associated with a specific event
+   * Note: This endpoint may not exist for all events. Use fetchEventDetailsWithResources first.
    */
   async fetchEventResources(event_id: string): Promise<YesPlanResource[]> {
-    const response = await this.request<YesPlanResponse<unknown>>(`/event/${event_id}/resources`)
-    return (response.data || []).map((resource: unknown) => this.normalizeResource(resource as Record<string, unknown>))
+    try {
+      const response = await this.request<YesPlanResponse<unknown>>(`/event/${event_id}/resources`)
+      return (response.data || []).map((resource: unknown) => this.normalizeResource(resource as Record<string, unknown>))
+    } catch (error) {
+      // If the endpoint doesn't exist, return empty array
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        if (import.meta.env.DEV) {
+          console.warn(`[YesPlanApiService] /api/event/${event_id}/resources endpoint not available`)
+        }
+        return []
+      }
+      throw error
+    }
   }
 
   /**
