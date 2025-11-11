@@ -260,8 +260,13 @@ onMounted(() => {
 <template>
   <div class="app">
     <header class="app-header">
-      <h1>CastleRooms</h1>
-      <p>Room Booking Calendar</p>
+      <div class="header-content">
+        <img src="/ImproNeufLogo.png" alt="Impro Neuf Logo" class="logo" />
+        <div class="header-text">
+          <h1>CastleRooms</h1>
+          <p>Room Booking Calendar</p>
+        </div>
+      </div>
     </header>
 
     <div v-if="loading" class="loading-container">
@@ -312,10 +317,29 @@ onMounted(() => {
 }
 
 .app-header {
-  background-color: #2196f3;
+  background-color: #000000;
   color: white;
   padding: 1.5rem;
   text-align: center;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.logo {
+  height: 50px;
+  width: auto;
+  object-fit: contain;
+}
+
+.header-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .app-header h1 {
@@ -344,7 +368,7 @@ onMounted(() => {
 
 .spinner {
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #2196f3;
+  border-top: 4px solid #000000;
   border-radius: 50%;
   width: 40px;
   height: 40px;
@@ -395,7 +419,7 @@ onMounted(() => {
 }
 
 .retry-button {
-  background-color: #2196f3;
+  background-color: #000000;
   color: white;
   border: none;
   border-radius: 4px;
@@ -406,7 +430,7 @@ onMounted(() => {
 }
 
 .retry-button:hover {
-  background-color: #1976d2;
+  background-color: #333333;
 }
 
 .empty-state-card p {
@@ -461,6 +485,19 @@ onMounted(() => {
 
   .app-header p {
     font-size: 0.9rem;
+  }
+
+  .header-content {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .logo {
+    height: 40px;
+  }
+
+  .header-text {
+    align-items: center;
   }
 
   .app-content {

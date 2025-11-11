@@ -405,7 +405,7 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
 }
 
 .today-button {
-  background: #007bff;
+  background: #000000;
   color: white;
   border: none;
   border-radius: 4px;
@@ -417,7 +417,7 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
 }
 
 .today-button:hover {
-  background: #0056b3;
+  background: #333333;
 }
 
 .loading,
@@ -477,7 +477,7 @@ const getEventHoverColor = (event: YesPlanEvent): string => {
 }
 
 .calendar-day.today {
-  background-color: #e3f2fd;
+  background-color: #e0e0e0;
 }
 
 .day-number {
